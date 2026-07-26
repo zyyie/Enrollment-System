@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Home - Enrollment System</title>
+  <link rel="stylesheet" href="../css/styles.css">
+</head>
+<body class="student-layout">
+  <div id="studentSidebarWrap"></div>
+  <div class="student-main">
+    <div id="studentHeader"></div>
+    <main class="main-content">
+    <h1 class="page-title">Home</h1>
+    <p class="student-info" id="studentInfo"></p>
+
+    <div class="doc-banner" onclick="alert('Opening Work Immersion Memorandum of Agreement...')">
+      <span>📄</span>
+      <span>Work Immersion Memorandum of Agreement</span>
+    </div>
+
+    <div class="dashboard-grid">
+      <div class="sidebar-nav">
+        <a href="#" class="active">📥 Inbox (7)</a>
+        <a href="#">🎓 Graduation Clearance</a>
+        <a href="#">💬 Submit Feedback</a>
+      </div>
+      <div>
+      <div class="table-wrap">
+        <table class="inbox-table">
+          <thead>
+            <tr>
+              <th style="width:160px">Date</th>
+              <th>Subject</th>
+              <th style="width:50px"></th>
+            </tr>
+          </thead>
+          <tbody id="inboxBody"></tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="guidelines-section">
+      <h3>General Guidelines for Senior High School Enrollment — Universal Access to Quality Education</h3>
+      <ol>
+        <li>All Grade 11 and Grade 12 students who meet admission requirements are eligible for the Senior High School Voucher Program, unless they fall under ineligible categories as defined by the Department of Education.</li>
+        <li>Students must maintain good scholastic standing. Students who incur scholastic delinquency (failing or dropping subjects) shall be subject to the following actions based on their subject load in the previous semester.</li>
+      </ol>
+
+      <table class="policy-table">
+        <caption>For 8 subjects and above in previous semester</caption>
+        <thead>
+          <tr>
+            <th>Number of Subjects Failed/Withdrawn/Dropped</th>
+            <th>Action to be Taken</th>
+            <th>Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>1 subject</td><td>Warning</td><td>Warning*</td></tr>
+          <tr><td>2 subjects</td><td>Warning with reduced load by 1 subject</td><td>Warning*</td></tr>
+          <tr><td>3 subjects</td><td>Reduced load by 2 subjects</td><td>Voucher will be forfeited for the following semester (Paying)</td></tr>
+          <tr><td>4 subjects</td><td>Dismissal — Dropped from the School</td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <table class="policy-table">
+        <caption>For 7 subjects and below in previous semester</caption>
+        <thead>
+          <tr>
+            <th>Number of Subjects Failed/Withdrawn/Dropped</th>
+            <th>Action to be Taken</th>
+            <th>Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>1–2 subjects</td><td>Warning</td><td>Warning*</td></tr>
+          <tr><td>3 subjects</td><td>Warning with reduced load by 1 subject</td><td>Voucher will be forfeited for the following semester (Paying)</td></tr>
+          <tr><td>4 subjects</td><td>Dismissal — Dropped from the School</td><td>—</td></tr>
+        </tbody>
+      </table>
+
+      <p style="font-size:13px; margin-top:12px;"><strong>*</strong> A student who receives a Warning for two consecutive semesters shall have the voucher grant forfeited for the following semester.</p>
+      <ol start="3" style="margin-top:16px;">
+        <li>Students who stay beyond the allowed number of years for their Senior High School program shall pay for the remaining years of stay.</li>
+        <li>Students intending to file for a leave of absence must follow the procedures in the Student Handbook. Authorized leaves allow the student to return and still enjoy the voucher.</li>
+        <li>Existing admission, retention, and graduation rules of the school shall apply. In case of inconsistency, the Student Handbook shall prevail.</li>
+      </ol>
+    </div>
+    </main>
+    <div id="footer"></div>
+  </div>
+
+  <div id="accessibility"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/supabase-client.js"></script>
+  <script src="/js/supabase-service.js"></script>
+  <script src="../js/data.js?v=6"></script>
+  <script src="../js/icons.js?v=8"></script>
+  <script src="../js/app.js?v=8"></script>
+  <script>
+    const student = initPage('home');
+
+    async function renderInbox() {
+      let messages = INBOX_MESSAGES;
+
+      if (typeof SupabaseService !== 'undefined' && SupabaseService.isEnabled()) {
+        const remoteMessages = await SupabaseService.getStudentNotifications(student.id);
+        if (remoteMessages && remoteMessages.length) {
+          messages = remoteMessages;
+        }
+      }
+
+      document.getElementById('inboxBody').innerHTML = messages.map(m => `
+        <tr>
+          <td>${m.date}</td>
+          <td>${m.title}</td>
+          <td>${m.hasPdf ? '<span class="pdf-icon" title="Download PDF">📄</span>' : ''}</td>
+        </tr>
+      `).join('');
+    }
+
+    renderInbox();
+  </script>
+</body>
+</html>

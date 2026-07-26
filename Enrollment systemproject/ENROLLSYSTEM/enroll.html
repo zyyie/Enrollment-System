@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enroll Now - Geranova Senior High School</title>
+  <link rel="stylesheet" href="css/styles.css?v=31">
+</head>
+<body>
+  <div class="enroll-page">
+    <img src="images/hero-bg.jpg" alt="" class="login-bg">
+    <div class="login-bg-overlay"></div>
+
+    <div class="enroll-toast" id="enrollToast" role="alert" aria-live="assertive">
+      <span class="enroll-toast-icon" aria-hidden="true">!</span>
+      <span class="enroll-toast-text" id="enrollToastText"></span>
+      <button type="button" class="enroll-toast-close" id="enrollToastClose" aria-label="Dismiss">&times;</button>
+    </div>
+
+    <div class="enroll-container" id="enrollWizard">
+      <div class="enroll-header">
+        <img src="assets/geranova-logo.png" alt="Geranova Senior High School Logo" class="school-logo sm">
+        <div>
+          <h1>Enroll Now</h1>
+          <p>Geranova Senior High School — S.Y. 2026-2027</p>
+        </div>
+        <a href="login.html" class="enroll-back-link">← Back to Sign In</a>
+      </div>
+
+      <div class="enroll-step-indicator" id="stepIndicator"></div>
+
+      <div class="enroll-draft-banner" id="draftBanner" hidden>
+        <div class="enroll-draft-banner-icon" aria-hidden="true">✓</div>
+        <div class="enroll-draft-banner-body">
+          <strong>Welcome back!</strong>
+          <span>Your saved progress was restored at Step <span id="draftStepNum">1</span>. You can go back to any step to review or edit your information.</span>
+        </div>
+        <div class="enroll-draft-banner-actions">
+          <button type="button" class="enroll-draft-btn" id="draftBannerDismiss">Got it</button>
+          <button type="button" class="enroll-draft-btn danger" id="draftBannerReset">Start over</button>
+        </div>
+      </div>
+
+      <div class="enroll-step-panel">
+        <div id="stepContent"></div>
+
+        <div class="enroll-nav">
+          <div class="enroll-nav-left">
+            <p class="enroll-save-hint" id="enrollSaveHint">Progress is saved automatically</p>
+          </div>
+          <div class="enroll-nav-right">
+            <button type="button" class="btn-secondary" id="btnPrev">← Back</button>
+            <button type="button" class="btn-primary" id="btnNext">Next</button>
+            <button type="button" class="btn-primary" id="btnSubmit" style="display:none;">Submit Application</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="enroll-submit-overlay" id="enrollSubmitSuccess" hidden>
+      <div class="enroll-submit-modal" role="dialog" aria-modal="true" aria-labelledby="submitSuccessTitle">
+        <div class="enroll-submit-icon" aria-hidden="true">✓</div>
+        <h2 id="submitSuccessTitle">Application Successfully Submitted!</h2>
+        <p>Your application has been received and is now pending review.</p>
+        <p class="enroll-submit-app-no"><strong>Application No:</strong> <span id="submitSuccessAppNo"></span></p>
+        <p class="enroll-submit-note">Once the registrar approves your application, sign in using your Student ID and password.</p>
+        <button type="button" class="btn-primary enroll-submit-btn" id="btnProceedSignIn">Proceed to Sign In Your Account</button>
+      </div>
+    </div>
+
+    <div class="enroll-container enroll-success" id="enrollSuccess" style="display:none;">
+      <div class="success-icon">✓</div>
+      <h2>Application Submitted!</h2>
+      <p>Your application has been received.</p>
+      <p><strong>Application No:</strong> <span id="successAppNumber"></span></p>
+      <p class="enroll-success-note">
+        A confirmation email has been sent. Once the registrar approves your application,
+        your <strong>Student ID</strong> and password will be emailed to you.
+        Use those credentials to sign in.
+      </p>
+      <a href="login.html" class="btn-primary">Go to Sign In</a>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/date-field.js?v=2"></script>
+  <script src="js/gcash-payment.js?v=7"></script>
+  <script src="js/bank-payment.js?v=1"></script>
+  <script src="js/address-select.js?v=1"></script>
+  <script src="js/admission.js?v=30"></script>
+</body>
+</html>

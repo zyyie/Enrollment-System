@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grades - Enrollment System</title>
+  <link rel="stylesheet" href="../css/styles.css">
+</head>
+<body class="student-layout">
+  <div id="studentSidebarWrap"></div>
+  <div class="student-main">
+    <div id="studentHeader"></div>
+    <main class="main-content">
+    <h1 class="page-title">Grades</h1>
+    <p class="student-info" id="studentInfo"></p>
+
+    <div class="curriculum-link">
+      <a href="#">📋 Curriculum Evaluation</a>
+    </div>
+
+    <div id="gradesContainer"><p>Loading grades...</p></div>
+    </main>
+    <div id="footer"></div>
+  </div>
+
+  <div id="accessibility"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/supabase-client.js"></script>
+  <script src="/js/supabase-service.js"></script>
+  <script src="../js/data.js"></script>
+  <script src="../js/icons.js?v=8"></script>
+  <script src="../js/app.js?v=9"></script>
+  <script>
+    const student = initPage('grades');
+    const container = document.getElementById('gradesContainer');
+
+    function renderGrades(terms) {
+      if (!terms.length) {
+        container.innerHTML = '<div class="alert-box alert-yellow">No official grades on record yet. Grades appear after your enrollment is approved and encoded by your instructors.</div>';
+        return;
+      }
+
+      container.innerHTML = terms.map(term => `
+        <div class="semester-block">
+          <div class="semester-header">School Year ${term.schoolYear} ${(term.semester || '').toUpperCase()}</div>
+          <div class="grade-summary">
+            <div class="item"><span class="item-label">Admission Status</span>${student.admissionStatus || '—'}</div>
+            <div class="item"><span class="item-label">Scholastic Status</span>${student.scholasticStatus || '—'}</div>
+            <div class="item"><span class="item-label">Strand</span>${student.strandFull || student.strand || '—'}</div>
+            <div class="item"><span class="item-label">GPA</span>${term.gpa ?? '—'}</div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Subject Code</th><th>Description</th><th>Faculty Name</th>
+                  <th>Units</th><th>Sect Code</th><th>Final Grade</th><th>Grade Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${(term.subjects || []).map((s, i) => `
+                  <tr>
+                    <td>${i + 1}</td>
+                    <td>${s.code}</td>
+                    <td>${s.description}</td>
+                    <td>${s.faculty || 'TBA'}</td>
+                    <td>${s.units}</td>
+                    <td>${s.sectCode || '—'}</td>
+                    <td>${s.finalGrade ?? '—'}</td>
+                    <td>${s.status || 'INC'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function loadGrades() {
+      let terms = null;
+      if (typeof SupabaseService !== 'undefined' && SupabaseService.isEnabled()) {
+        terms = await SupabaseService.getStudentGrades(student.id);
+      }
+      if (!terms) {
+        try {
+          const res = await fetch('/api/student/grades?studentId=' + encodeURIComponent(student.id));
+          const json = await res.json();
+          if (json.success) terms = json.data;
+        } catch (err) {
+          console.warn(err);
+        }
+      }
+      if (!terms || !terms.length) {
+        terms = typeof GRADES_DATA !== 'undefined' ? GRADES_DATA : [];
+      }
+      renderGrades(terms);
+    }
+
+    loadGrades();
+  </script>
+</body>
+</html>

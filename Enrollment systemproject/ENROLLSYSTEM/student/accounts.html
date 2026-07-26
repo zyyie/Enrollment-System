@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accounts - Enrollment System</title>
+  <link rel="stylesheet" href="../css/styles.css">
+</head>
+<body class="student-layout">
+  <div id="studentSidebarWrap"></div>
+  <div class="student-main">
+    <div id="studentHeader"></div>
+    <main class="main-content">
+    <h1 class="page-title">Accounts</h1>
+    <p class="student-info" id="studentInfo"></p>
+
+    <div class="card">
+      <div class="card-body" style="padding:0;">
+        <div class="table-wrap">
+        <table class="data-table" id="accountsTable">
+          <thead>
+            <tr>
+              <th>School Year</th>
+              <th>Semester</th>
+              <th>Scholarship</th>
+              <th>O.R. Date</th>
+              <th>O.R. No.</th>
+              <th>Assessment</th>
+              <th>Payment</th>
+              <th>Balance</th>
+            </tr>
+          </thead>
+          <tbody id="accountsBody"></tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+    </main>
+    <div id="footer"></div>
+  </div>
+
+  <div id="accessibility"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/supabase-client.js"></script>
+  <script src="/js/supabase-service.js"></script>
+  <script src="../js/data.js"></script>
+  <script src="../js/icons.js?v=8"></script>
+  <script src="../js/app.js?v=8"></script>
+  <script>
+    initPage('accounts');
+
+    let html = '';
+    ACCOUNTS_DATA.forEach(term => {
+      term.entries.forEach((entry, idx) => {
+        const isFirst = idx === 0;
+        html += `<tr class="${entry.isTotal ? 'total-row' : ''}">
+          <td>${isFirst ? term.schoolYear : ''}</td>
+          <td>${isFirst ? `<span class="semester-link">${term.semester}</span>` : ''}</td>
+          <td>${isFirst ? term.scholarship : ''}</td>
+          <td>${entry.orDate}</td>
+          <td>${entry.orNo}</td>
+          <td>${entry.assessment ? formatCurrency(entry.assessment) : '0.00'}</td>
+          <td>${entry.payment ? formatCurrency(entry.payment) : '0.00'}</td>
+          <td>${formatCurrency(entry.balance)}</td>
+        </tr>`;
+      });
+    });
+    document.getElementById('accountsBody').innerHTML = html;
+  </script>
+</body>
+</html>

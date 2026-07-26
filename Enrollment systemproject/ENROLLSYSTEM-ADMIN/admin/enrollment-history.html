@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enrollment History - Geranova Admin</title>
+  <link rel="stylesheet" href="css/admin.css">
+</head>
+<body class="admin-layout">
+  <div id="adminSidebarWrap"></div>
+  <div class="admin-main">
+    <div id="adminHeader"></div>
+    <main class="admin-content">
+      <div class="admin-card">
+        <div class="admin-card-head">Processed Admission Applications</div>
+        <div class="admin-card-body" id="historyTable">
+          <div class="admin-empty">Loading...</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/icons.js"></script>
+  <script src="js/admin.js?v=20"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      const history = await AdminApp.loadAdmissionHistory();
+      await AdminApp.refreshLayout('enrollment-history', 'Enrollment History');
+
+      if (!history.length) {
+        document.getElementById('historyTable').innerHTML = '<div class="admin-empty">No processed applications yet.</div>';
+        return;
+      }
+
+      document.getElementById('historyTable').innerHTML = `
+        <table class="admin-table">
+          <thead>
+            <tr><th>Applicant</th><th>Student ID</th><th>Strand</th><th>Grade</th><th>Status</th><th>Date</th><th>Email</th></tr>
+          </thead>
+          <tbody>
+            ${history.map(h => `
+              <tr>
+                <td><div class="student-name">${h.student}</div></td>
+                <td>${h.studentId || '—'}</td>
+                <td>${h.strand || '—'}</td>
+                <td>${h.grade || '—'}</td>
+                <td>${AdminApp.statusBadge(h.status)}</td>
+                <td>${h.date || '—'}</td>
+                <td>${h.email || '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`;
+    });
+  </script>
+</body>
+</html>

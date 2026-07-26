@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grades Management - Geranova Admin</title>
+  <link rel="stylesheet" href="css/admin.css?v=33">
+</head>
+<body class="admin-layout">
+  <div id="adminSidebarWrap"></div>
+  <div class="admin-main">
+    <div id="adminHeader"></div>
+    <main class="admin-content">
+      <div class="admin-card">
+        <div class="admin-card-head"><i class="fas fa-graduation-cap"></i> Grades Management</div>
+        <div class="admin-card-body padded">
+          <div class="admin-form-row" style="margin-bottom:16px;">
+            <div class="admin-form-group">
+              <label>Grade Level</label>
+              <select id="gradeFilter" class="admin-input">
+                <option value="">All</option>
+                <option value="Grade 11">Grade 11</option>
+                <option value="Grade 12">Grade 12</option>
+              </select>
+            </div>
+            <div class="admin-form-group">
+              <label>&nbsp;</label>
+              <button type="button" class="admin-btn primary" id="loadBtn">Load Students</button>
+            </div>
+          </div>
+          <div id="studentsList"><div class="admin-empty">Select filters and load enrolled students.</div></div>
+        </div>
+      </div>
+      <div class="admin-card" id="gradesCard" style="display:none;margin-top:20px;">
+        <div class="admin-card-head" id="gradesCardTitle">Encode Grades</div>
+        <div class="admin-card-body padded" id="gradesForm"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/supabase-client.js"></script>
+  <script src="../js/supabase-service.js"></script>
+  <script src="js/admin.js?v=24"></script>
+  <script>
+    let selectedEnrollmentId = null;
+
+    async function loadStudents() {
+      const grade = document.getElementById('gradeFilter').value || null;
+      let list = [];
+      try {
+        const q = grade ? '?gradeLevel=' + encodeURIComponent(grade) : '';
+        const res = await AdminApp.fetchJson('/api/grades/students' + q);
+        list = res.data || [];
+      } catch (err) {
+        if (SupabaseService.isEnabled()) {
+          list = await SupabaseService.getStudentsForGrading(grade);
+        }
+      }
+
+      if (!list.length) {
+        document.getElementById('studentsList').innerHTML = '<div class="admin-empty">No enrolled students found for current term.</div>';
+        return;
+      }
+
+      document.getElementById('studentsList').innerHTML = `
+        <table class="admin-table">
+          <thead><tr><th>Student</th><th>ID</th><th>Grade</th><th>Strand</th><th>Action</th></tr></thead>
+          <tbody>
+            ${list.map(s => `
+              <tr>
+                <td>${AdminApp.escHtml(s.student)}</td>
+                <td>${AdminApp.escHtml(s.studentId)}</td>
+                <td>${AdminApp.escHtml(s.gradeLevel)}</td>
+                <td>${AdminApp.escHtml(s.strand || '—')}</td>
+                <td><button type="button" class="admin-btn secondary" data-id="${s.enrollmentId}">Encode Grades</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`;
+
+      document.querySelectorAll('#studentsList [data-id]').forEach(btn => {
+        btn.addEventListener('click', () => openGradesSheet(btn.dataset.id, btn.closest('tr').cells[0].textContent));
+      });
+    }
+
+    async function openGradesSheet(enrollmentId, studentName) {
+      selectedEnrollmentId = enrollmentId;
+      let sheet = [];
+      try {
+        const res = await AdminApp.fetchJson('/api/grades/sheet?enrollmentId=' + encodeURIComponent(enrollmentId));
+        sheet = res.data || [];
+      } catch (err) {
+        if (SupabaseService.isEnabled()) {
+          sheet = await SupabaseService.getGradesSheet(enrollmentId);
+        }
+      }
+
+      document.getElementById('gradesCard').style.display = 'block';
+      document.getElementById('gradesCardTitle').textContent = 'Encode Grades — ' + studentName;
+      document.getElementById('gradesForm').innerHTML = `
+        <table class="admin-table">
+          <thead><tr><th>Code</th><th>Subject</th><th>Midterm</th><th>Final</th><th>Status</th></tr></thead>
+          <tbody>
+            ${sheet.map((row, i) => `
+              <tr data-es-id="${row.enrollmentSubjectId}">
+                <td>${AdminApp.escHtml(row.code)}</td>
+                <td>${AdminApp.escHtml(row.description)}</td>
+                <td><input type="number" min="0" max="100" step="0.01" class="admin-input grade-mid" value="${row.midtermGrade ?? ''}" style="width:80px;"></td>
+                <td><input type="number" min="0" max="100" step="0.01" class="admin-input grade-final" value="${row.finalGrade ?? ''}" style="width:80px;"></td>
+                <td>${AdminApp.escHtml(row.gradeStatus || 'incomplete')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <p style="font-size:13px;color:#64748b;margin:12px 0;">Passing grade: 75. Grade 11 progression is evaluated automatically when all finals are saved.</p>
+        <button type="button" class="admin-btn success" id="saveGradesBtn">Save Grades</button>`;
+
+      document.getElementById('saveGradesBtn').addEventListener('click', saveGrades);
+    }
+
+    async function saveGrades() {
+      const user = AdminApp.getUser();
+      const grades = [];
+      document.querySelectorAll('#gradesForm tbody tr[data-es-id]').forEach(row => {
+        grades.push({
+          enrollmentSubjectId: row.dataset.esId,
+          midtermGrade: row.querySelector('.grade-mid').value,
+          finalGrade: row.querySelector('.grade-final').value
+        });
+      });
+
+      try {
+        const res = await fetch('/api/grades/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            enrollmentId: selectedEnrollmentId,
+            facultyId: user?.id,
+            grades
+          })
+        });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || 'Save failed');
+        await AdminApp.showReviewMessage({
+          type: 'success',
+          title: 'Grades Saved',
+          message: 'Grades recorded. Grade 11 progression rules were applied if applicable.'
+        });
+        openGradesSheet(selectedEnrollmentId, document.getElementById('gradesCardTitle').textContent.replace('Encode Grades — ', ''));
+      } catch (err) {
+        await AdminApp.alertDialog({ type: 'error', title: 'Save Failed', message: err.message });
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      if (!AdminApp.requireAuth()) return;
+      AdminApp.initLayout('grades-manage', 'Grades Management');
+      document.getElementById('loadBtn').addEventListener('click', loadStudents);
+    });
+  </script>
+</body>
+</html>

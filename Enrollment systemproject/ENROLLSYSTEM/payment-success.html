@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Payment Successful</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; padding: 40px; color: #007dfe; }
+  </style>
+</head>
+<body>
+  <p>Payment complete. This window will close automatically...</p>
+  <script>
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const sessionId = params.get('session_id') || params.get('sessionId') || localStorage.getItem('gcash_pending_session');
+
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage({
+          type: 'gcash-payment-complete',
+          sessionId: sessionId
+        }, window.location.origin);
+        setTimeout(function () { window.close(); }, 800);
+      } else {
+        window.location.href = 'enroll.html?payment=success&session_id=' + encodeURIComponent(sessionId || '');
+      }
+    })();
+  </script>
+</body>
+</html>

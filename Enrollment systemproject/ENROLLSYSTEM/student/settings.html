@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings - Geranova Senior High School</title>
+  <link rel="stylesheet" href="../css/styles.css">
+</head>
+<body class="student-layout">
+  <div id="studentSidebarWrap"></div>
+  <div class="student-main">
+    <div id="studentHeader"></div>
+    <main class="main-content">
+      <h1 class="page-title">Settings</h1>
+      <p class="student-info" id="studentInfo"></p>
+
+      <div class="card">
+        <div class="card-header">Account Information</div>
+        <div class="card-body settings-list">
+          <div class="settings-item">
+            <span class="settings-label">Student ID</span>
+            <span class="settings-value" id="settingStudentId"></span>
+          </div>
+          <div class="settings-item">
+            <span class="settings-label">Full Name</span>
+            <span class="settings-value" id="settingFullName"></span>
+          </div>
+          <div class="settings-item">
+            <span class="settings-label">Strand</span>
+            <span class="settings-value" id="settingStrand"></span>
+          </div>
+          <div class="settings-item">
+            <span class="settings-label">Grade Level</span>
+            <span class="settings-value" id="settingGrade"></span>
+          </div>
+          <div class="settings-item">
+            <span class="settings-label">Section</span>
+            <span class="settings-value" id="settingSection"></span>
+          </div>
+          <div class="settings-item">
+            <span class="settings-label">School Year</span>
+            <span class="settings-value" id="settingSchoolYear"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Preferences</div>
+        <div class="card-body settings-list">
+          <div class="settings-item">
+            <span class="settings-label">Email Notifications</span>
+            <span class="settings-value">Enabled</span>
+          </div>
+          <div class="settings-item">
+            <span class="settings-label">Enrollment Updates</span>
+            <span class="settings-value">Enabled</span>
+          </div>
+        </div>
+      </div>
+    </main>
+    <div id="footer"></div>
+  </div>
+
+  <div id="accessibility"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/supabase-client.js"></script>
+  <script src="/js/supabase-service.js"></script>
+  <script src="../js/data.js?v=6"></script>
+  <script src="../js/icons.js?v=8"></script>
+  <script src="../js/app.js?v=8"></script>
+  <script>
+    const student = initPage('settings');
+    document.getElementById('settingStudentId').textContent = student.id;
+    document.getElementById('settingFullName').textContent =
+      `${student.lastName}, ${student.firstName} ${student.middleName}`;
+    document.getElementById('settingStrand').textContent = student.strandFull || student.strand;
+    document.getElementById('settingGrade').textContent = student.gradeLevel;
+    document.getElementById('settingSection').textContent = student.section;
+    document.getElementById('settingSchoolYear').textContent =
+      `${student.schoolYear} — ${student.semester}`;
+  </script>
+</body>
+</html>

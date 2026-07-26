@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enrollment Period - Geranova Admin</title>
+  <link rel="stylesheet" href="css/admin.css?v=33">
+</head>
+<body class="admin-layout">
+  <div id="adminSidebarWrap"></div>
+  <div class="admin-main">
+    <div id="adminHeader"></div>
+    <main class="admin-content">
+      <div class="admin-card">
+        <div class="admin-card-head"><i class="fas fa-calendar-days"></i> Enrollment Period Control</div>
+        <div class="admin-card-body padded" id="termPanel">
+          <div class="admin-empty">Loading...</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/config.js"></script>
+  <script src="../js/supabase-client.js"></script>
+  <script src="../js/supabase-service.js"></script>
+  <script src="js/admin.js?v=24"></script>
+  <script>
+    let period = {};
+
+    async function fetchEnrollmentPeriod() {
+      if (SupabaseService.isEnabled()) {
+        const data = await SupabaseService.getEnrollmentPeriod();
+        if (data && data.schoolYear) return data;
+      }
+
+      const res = await AdminApp.fetchJson('/api/term/enrollment-period');
+      return res.data || {};
+    }
+
+    async function saveEnrollmentPeriod(open, target) {
+      if (SupabaseService.isEnabled()) {
+        const result = await SupabaseService.setEnrollmentPeriod(open, target);
+        if (!result.success) {
+          throw new Error(result.error || 'Update failed');
+        }
+        return result.data;
+      }
+
+      const json = await AdminApp.postJson('/api/term/enrollment-period', {
+        enrollmentOpen: open,
+        targetGradeLevel: target
+      });
+      if (!json.success) {
+        throw new Error(json.error || 'Update failed');
+      }
+      return json.data;
+    }
+
+    async function loadPeriod() {
+      if (!AdminApp.requireAuth()) return;
+      AdminApp.initLayout('term-settings', 'Enrollment Period');
+
+      try {
+        period = await fetchEnrollmentPeriod();
+      } catch (err) {
+        period = {};
+        document.getElementById('termPanel').innerHTML = `
+          <div class="admin-empty" style="color:#b91c1c;">
+            Failed to load enrollment period: ${AdminApp.escHtml(err.message)}
+            <p style="margin-top:12px;font-size:13px;color:#64748b;">
+              Run <code>python main.py</code> for the admin portal, then re-run
+              <code>enrollment-workflow.sql</code> in Supabase if School Year is still blank.
+            </p>
+          </div>`;
+        return;
+      }
+
+      const isOpen = !!period.enrollmentOpen;
+      document.getElementById('termPanel').innerHTML = `
+        <div class="admin-review-grid" style="margin-bottom:20px;">
+          <div><strong>School Year:</strong> ${AdminApp.escHtml(period.schoolYear || '—')}</div>
+          <div><strong>Semester:</strong> ${AdminApp.escHtml(period.semester || '—')}</div>
+          <div><strong>Status:</strong> <span class="admin-badge ${isOpen ? 'approved' : 'rejected'}">${isOpen ? 'OPEN' : 'CLOSED'}</span></div>
+        </div>
+        <div class="admin-form-group">
+          <label>Target Grade Level (optional)</label>
+          <select id="targetGrade" class="admin-input">
+            <option value="">All eligible students</option>
+            <option value="Grade 11" ${period.targetGradeLevel === 'Grade 11' ? 'selected' : ''}>Grade 11 only</option>
+            <option value="Grade 12" ${period.targetGradeLevel === 'Grade 12' ? 'selected' : ''}>Grade 12 only</option>
+          </select>
+          <small style="color:#64748b;">Use Grade 12 when opening enrollment for continuing students who passed Grade 11.</small>
+        </div>
+        <div class="admin-modal-actions" style="margin-top:20px;justify-content:flex-start;">
+          <button type="button" class="admin-modal-btn-approve" id="openBtn" ${isOpen ? 'disabled' : ''}>Open Enrollment</button>
+          <button type="button" class="admin-modal-btn-reject" id="closeBtn" ${!isOpen ? 'disabled' : ''}>Close Enrollment</button>
+        </div>
+        <p style="margin-top:16px;font-size:13px;color:#64748b;">
+          Closing enrollment will freeze accounts of active students who did not submit an enrollment for this term.
+        </p>`;
+
+      document.getElementById('openBtn').addEventListener('click', () => setPeriod(true));
+      document.getElementById('closeBtn').addEventListener('click', () => setPeriod(false));
+    }
+
+    async function setPeriod(open) {
+      const target = document.getElementById('targetGrade').value || null;
+      const confirmed = await AdminApp.confirmDialog({
+        title: open ? 'Open Enrollment?' : 'Close Enrollment?',
+        message: open
+          ? 'Students will be able to submit subject enrollment for the current term.'
+          : 'Enrollment will close and inactive students may be frozen automatically.',
+        confirmLabel: open ? 'Open' : 'Close',
+        variant: open ? 'approve' : 'reject'
+      });
+      if (!confirmed) return;
+
+      try {
+        await saveEnrollmentPeriod(open, target);
+        await AdminApp.showReviewMessage({
+          type: 'success',
+          title: open ? 'Enrollment Opened' : 'Enrollment Closed',
+          message: open ? 'Students can now enroll.' : 'Enrollment period is closed.'
+        });
+        loadPeriod();
+      } catch (err) {
+        let message = err.message || 'Update failed';
+        if (message.includes('Invalid server response') || message.includes('Server API not found')) {
+          message += ' Start the admin server with python main.py (port 8001).';
+        }
+        if (message.includes('function') && message.includes('does not exist')) {
+          message += ' Run enrollment-workflow.sql in Supabase SQL Editor.';
+        }
+        await AdminApp.alertDialog({ type: 'error', title: 'Failed', message });
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadPeriod);
+  </script>
+</body>
+</html>
