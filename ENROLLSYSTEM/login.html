@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - Enrollment System</title>
+  <link rel="stylesheet" href="css/styles.css?v=25">
+</head>
+<body>
+  <div class="login-page">
+    <img src="images/hero-bg.jpg" alt="" class="login-bg">
+    <div class="login-bg-overlay"></div>
+    <div class="login-panel">
+      <div class="login-logo-wrap">
+        <img src="assets/geranova-logo.png" alt="Geranova Senior High School Logo" class="school-logo sm">
+      </div>
+      <h1 class="login-title" id="loginTitle">Geranova Senior High School</h1>
+      <p class="login-subtitle" id="loginSubtitle">Sign in to start your session</p>
+
+      <div class="error-msg" id="loginError"></div>
+
+      <form onsubmit="handleLogin(event)" autocomplete="off">
+        <div class="form-group">
+          <label for="studentId" id="idLabel">Student ID</label>
+          <input type="text" id="studentId" class="form-control" placeholder="2026-00145-SHS-0" autocomplete="off" required>
+        </div>
+
+        <div class="form-group" id="birthdateGroup">
+          <label for="birthdate">Birthdate</label>
+          <div class="date-field">
+            <input type="hidden" id="birthdate" required>
+            <input type="text" class="form-control date-input date-picker-trigger" readonly
+              placeholder="dd / mm / yyyy" autocomplete="off">
+            <span class="date-field-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+                <path d="M16 2v4M8 2v4M3 10h18"></path>
+              </svg>
+            </span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" class="form-control" autocomplete="new-password" required>
+          <p class="forgot-password-wrap">
+            <button type="button" class="forgot-password-link" id="forgotPasswordBtn">Forgot Password?</button>
+          </p>
+        </div>
+
+        <button type="submit" class="btn-primary">Sign in</button>
+      </form>
+
+      <p class="login-links" id="enrollNowLink">
+        <a href="enroll.html?new=1" class="enroll-now-link">Enroll Now</a>
+      </p>
+
+      <p class="login-footer">
+        By using this service, you understood and agree to the
+        <a href="#">Enrollment System Terms of Use</a> and
+        <a href="#">Privacy Statement</a>
+      </p>
+    </div>
+  </div>
+
+  <div class="forgot-password-overlay" id="forgotPasswordOverlay" hidden>
+    <div class="forgot-password-modal" role="dialog" aria-modal="true" aria-labelledby="forgotPasswordTitle">
+      <button type="button" class="forgot-password-close" id="forgotPasswordClose" aria-label="Close">&times;</button>
+      <h2 id="forgotPasswordTitle">Reset Password</h2>
+      <p class="forgot-password-desc">Enter the email address you used during enrollment. We will send a new password to that email.</p>
+      <div class="error-msg" id="forgotPasswordError"></div>
+      <form id="forgotPasswordForm" autocomplete="off">
+        <div class="form-group">
+          <label for="forgotEmail">Email Address</label>
+          <input type="email" id="forgotEmail" class="form-control" placeholder="you@example.com" autocomplete="email" required>
+        </div>
+        <button type="submit" class="btn-primary" id="forgotPasswordSubmit">Send New Password</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/config.js"></script>
+  <script src="js/date-field.js?v=2"></script>
+  <script src="js/password-field.js?v=2"></script>
+  <script src="js/supabase-client.js"></script>
+  <script src="js/supabase-service.js?v=6"></script>
+  <script src="js/data.js?v=9"></script>
+  <script src="js/app.js?v=16"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      initStudentLoginPage();
+    });
+  </script>
+</body>
+</html>

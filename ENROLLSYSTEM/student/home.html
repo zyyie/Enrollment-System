@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Home - Enrollment System</title>
+  <link rel="stylesheet" href="../css/styles.css?v=22">
+</head>
+<body class="student-layout">
+  <div id="studentSidebarWrap"></div>
+  <div class="student-main">
+    <div id="studentHeader"></div>
+    <main class="main-content student-home">
+      <section class="home-welcome-hero" id="homeWelcome"></section>
+
+      <section class="home-quick-links" id="homeQuickLinks"></section>
+
+      <section class="home-video-section">
+        <video
+          class="home-feature-video"
+          controls
+          playsinline
+          preload="metadata"
+          poster="../assets/geranova-logo.png"
+          src="../assets/videos/home-feature.mp4"
+        >
+          Your browser does not support the video tag.
+        </video>
+      </section>
+    </main>
+    <div id="footer"></div>
+  </div>
+
+  <div id="accessibility"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/supabase-client.js"></script>
+  <script src="/js/supabase-service.js?v=6"></script>
+  <script src="../js/icons.js?v=2"></script>
+  <script src="../js/app.js?v=15"></script>
+  <script>
+    initPage('home');
+  </script>
+</body>
+</html>

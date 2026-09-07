@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enrollment - Enrollment System</title>
+  <link rel="stylesheet" href="../css/styles.css?v=26">
+</head>
+<body class="student-layout">
+  <div id="studentSidebarWrap"></div>
+  <div class="student-main">
+    <div id="studentHeader"></div>
+    <main class="main-content">
+    <h1 class="page-title" id="enrollmentPageTitle">Registration (S.Y. 2026-2027 - First Semester)</h1>
+    <p class="student-info" id="studentInfo"></p>
+
+    <div class="alert-box alert-teal">
+      <strong>Client Advisory:</strong> Payments may be made through accredited payment channels (LBP, GCash, or school cashier). Please allow 2–3 business days for payments to reflect in your account. Monitor your account regularly.
+    </div>
+
+    <div class="alert-box alert-yellow">
+      <strong>OPT-OUT WAIVER / VOLUNTARY CONTRIBUTION</strong><br>
+      <a href="#">📄 Download the form</a>
+    </div>
+
+    <div class="status-bar">
+      <div class="status-item">
+        <span class="label">Status:</span> Regular (<span id="requiredSubjectsLabel">Subjects Required</span>)
+      </div>
+      <div class="status-item">
+        <span class="label">Strand:</span> <span id="strandInfo"></span>
+      </div>
+      <div class="status-item">
+        <span class="label">Term:</span> <span id="termInfo"></span>
+      </div>
+      <div class="status-item">
+        <span class="label">Section:</span> <span id="sectionInfo"></span>
+      </div>
+      <div class="status-item">
+        <span class="label">Offered:</span> <strong id="offeringCount">0</strong> / 7 subjects
+      </div>
+    </div>
+
+    <div class="alert-box alert-green" id="qualificationBanner">
+      👍 You are qualified for the Senior High School Voucher Program.
+    </div>
+
+    <!-- Already enrolled — waiting for next semester -->
+    <div id="enrollmentWaiting" style="display:none;">
+      <div class="enrollment-waiting-card">
+        <h2 id="enrollmentWaitingTitle">Enrollment Complete for This Term</h2>
+        <p id="enrollmentWaitingMessage"></p>
+        <div class="enrollment-waiting-details" id="enrollmentWaitingDetails"></div>
+      </div>
+    </div>
+
+    <!-- Subject Selection (logged-in student portal) -->
+    <div id="enrollmentSelection">
+      <div class="enrollment-instructions">
+        <ol>
+          <li>Select a <strong>schedule</strong> from the dropdown for each subject.</li>
+          <li>Check the subjects you want to enroll.</li>
+          <li>Click <strong>Save &amp; Assess</strong>.</li>
+          <li>Select your <strong>Mode of Payment</strong> (GCash or Pay at Cashier).</li>
+          <li>Review and click the correct number to confirm.</li>
+          <li>After admin approval, your <strong>Certificate of Registration (COR)</strong> will be sent to your registered email.</li>
+        </ol>
+      </div>
+
+      <div class="enrollment-actions">
+        <button class="btn-save-assess" onclick="saveAndAssess()">Save &amp; Assess</button>
+        <span class="selected-count-label">Selected: <strong id="selectedCount">0</strong> subjects</span>
+      </div>
+
+      <p class="enrollment-table-label">Select schedule first, then check the subjects to enroll:</p>
+
+      <div class="card enrollment-table-card">
+        <div class="table-wrap">
+          <table class="enrollment-table">
+            <thead>
+              <tr>
+                <th class="col-check"></th>
+                <th>Subject Code</th>
+                <th>Subject Description</th>
+                <th class="col-num">Lec Hrs</th>
+                <th class="col-num">Lab Hrs</th>
+                <th class="col-num">Units</th>
+                <th>Schedule</th>
+              </tr>
+            </thead>
+            <tbody id="subjectBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="enrollment-notes">
+        <p><span class="note-prereq">Note:</span> Select a schedule from the dropdown before checking a subject. Checkbox is disabled until schedule is selected.</p>
+      </div>
+    </div>
+
+    <!-- Enrollment blocked / closed -->
+    <div id="enrollmentBlocked" style="display:none;">
+      <div class="alert-box alert-yellow" id="enrollmentBlockedMessage"></div>
+    </div>
+
+    <!-- Step 6: Enrolled / Pending Success -->
+    <div id="enrollmentSuccess" style="display:none;">
+      <div class="enrolled-banner">
+        <p id="enrolledMessage">You are officially enrolled.</p>
+        <button class="btn-secondary" id="redoEnrollmentBtn" onclick="resetEnrollment()" style="display:none;">Redo Enrollment</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Mode of Payment (last step before submit) -->
+  <div class="modal-overlay enrollment-payment-overlay" id="paymentModal">
+    <div class="modal-box enrollment-payment-modal">
+      <div class="enrollment-confirm-badge">Step Before Submit</div>
+      <h3>Mode of Payment</h3>
+      <p class="enrollment-payment-desc">Choose how you will pay the enrollment fee of <strong id="paymentFeeLabel">₱2,500.00</strong>.</p>
+
+      <div class="payment-method-list" id="enrollmentPaymentMethods">
+        <label class="payment-method-row" data-mode="gcash">
+          <input type="radio" name="enrollmentPaymentMode" value="gcash">
+          <img src="../assets/gcash-logo.svg" alt="GCash" class="payment-method-logo gcash">
+          <span class="payment-method-body">
+            <strong>GCash</strong>
+            <span>Scan QR code and pay via GCash app</span>
+          </span>
+          <span class="payment-method-radio" aria-hidden="true"></span>
+        </label>
+
+        <label class="payment-method-row selected" data-mode="cashier">
+          <input type="radio" name="enrollmentPaymentMode" value="cashier" checked>
+          <span class="payment-method-icon cashier" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </span>
+          <span class="payment-method-body">
+            <strong>Pay at Cashier</strong>
+            <span>Pay in person at the school cashier after submitting</span>
+          </span>
+          <span class="payment-method-radio" aria-hidden="true"></span>
+        </label>
+      </div>
+
+      <div id="enrollmentGcashPanel" class="payment-detail-panel">
+        <div class="gcash-checkout-card">
+          <div class="gcash-checkout-icon">
+            <img src="../assets/gcash-logo.svg" alt="GCash">
+          </div>
+          <div class="gcash-checkout-meta">
+            <p class="gcash-checkout-title">GCash QR Payment</p>
+            <p class="gcash-checkout-amount" id="enrollmentGcashAmount">₱2,500.00</p>
+            <p class="gcash-checkout-note">Secure payment via QR scan · 0945 661 0582</p>
+          </div>
+        </div>
+        <div id="enrollmentGcashSubmitted" style="display:none;"></div>
+        <button type="button" class="gcash-pay-btn full-width" id="btnEnrollmentPayGcash">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3"/><path d="M20 17v3h-3"/></svg>
+          Pay with GCash
+        </button>
+        <p class="field-hint payment-gcash-hint">Opens QR payment window — scan with your GCash app, then enter your payment details.</p>
+      </div>
+
+      <div id="enrollmentCashierPanel" class="payment-cashier-note" style="display:none;">
+        <span class="payment-cashier-icon" aria-hidden="true">ℹ</span>
+        <p>You will pay at the school cashier after your enrollment is submitted and approved.</p>
+      </div>
+
+      <p class="enrollment-payment-error" id="enrollmentPaymentError"></p>
+
+      <div class="enrollment-payment-actions">
+        <button type="button" class="btn-secondary" onclick="closePaymentModal()">Back</button>
+        <button type="button" class="btn-save-assess" id="btnProceedToConfirm">Continue to Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 5: Confirmation Modal -->
+  <div class="modal-overlay enrollment-confirm-overlay" id="confirmModal">
+    <div class="modal-box enrollment-confirm-modal">
+      <div class="enrollment-confirm-badge">Final Step</div>
+      <h3>Confirm Your Enrollment</h3>
+      <p>If you proceed, it certifies that you have reviewed your enrollment and hereby confirm your official registration on:</p>
+      <p class="confirm-count"><strong id="confirmSubjectCount">0</strong> SUBJECTS SELECTED.</p>
+      <p class="confirm-warning">After confirmation, changes can only be made through the Registrar's Office and/or your Strand Coordinator.</p>
+      <p class="confirm-prompt">Click/tap the number of subjects you selected to proceed:</p>
+      <p class="enrollment-confirm-status" id="confirmSubmitStatus" aria-live="polite"></p>
+      <div class="confirm-number-grid" id="numberGrid">
+        <button type="button" class="confirm-num-btn" data-num="1" onclick="confirmSubjectCount(1)">1</button>
+        <button type="button" class="confirm-num-btn" data-num="2" onclick="confirmSubjectCount(2)">2</button>
+        <button type="button" class="confirm-num-btn" data-num="3" onclick="confirmSubjectCount(3)">3</button>
+        <button type="button" class="confirm-num-btn" data-num="4" onclick="confirmSubjectCount(4)">4</button>
+        <button type="button" class="confirm-num-btn" data-num="5" onclick="confirmSubjectCount(5)">5</button>
+        <button type="button" class="confirm-num-btn" data-num="6" onclick="confirmSubjectCount(6)">6</button>
+        <button type="button" class="confirm-num-btn" data-num="7" onclick="confirmSubjectCount(7)">7</button>
+        <button type="button" class="confirm-num-btn" data-num="8" onclick="confirmSubjectCount(8)">8</button>
+        <button type="button" class="confirm-num-btn" data-num="9" onclick="confirmSubjectCount(9)">9</button>
+        <button type="button" class="confirm-num-btn" data-num="10" onclick="confirmSubjectCount(10)">10</button>
+        <button type="button" class="confirm-num-btn" data-num="11" onclick="confirmSubjectCount(11)">11</button>
+        <button type="button" class="confirm-num-btn" data-num="12" onclick="confirmSubjectCount(12)">12</button>
+        <button type="button" class="confirm-num-btn" data-num="13" onclick="confirmSubjectCount(13)">13</button>
+        <button type="button" class="confirm-num-btn" data-num="14" onclick="confirmSubjectCount(14)">14</button>
+        <button type="button" class="confirm-num-btn" data-num="15" onclick="confirmSubjectCount(15)">15</button>
+      </div>
+      <p class="confirm-refresh"><a href="#" onclick="closeConfirmModal(); return false;">The number of subjects you checked did not tally? Close and try again.</a></p>
+      <button class="btn-secondary enrollment-confirm-cancel" onclick="closeConfirmModal()">Cancel</button>
+    </div>
+  </div>
+
+    <div id="footer"></div>
+  </div>
+
+  <div id="accessibility"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/supabase-client.js"></script>
+  <script src="/js/schedule-format.js?v=2"></script>
+  <script src="/js/supabase-service.js?v=6"></script>
+  <script src="../js/enrollment-curriculum.js?v=3"></script>
+  <script src="../js/data.js?v=9"></script>
+  <script src="../js/admission-validation.js?v=1"></script>
+  <script src="../js/gcash-payment.js?v=3"></script>
+  <script src="../js/enrollment.js?v=21"></script>
+  <script src="../js/icons.js?v=2"></script>
+  <script src="../js/app.js?v=16"></script>
+  <script>
+    const student = initPage('enrollment');
+    document.getElementById('sectionInfo').textContent = student.section;
+    initEnrollmentPage(student);
+  </script>
+</body>
+</html>

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grades - Enrollment System</title>
+  <link rel="stylesheet" href="../css/styles.css?v=22">
+</head>
+<body class="student-layout">
+  <div id="studentSidebarWrap"></div>
+  <div class="student-main">
+    <div id="studentHeader"></div>
+    <main class="main-content">
+    <p class="student-info" id="studentInfo"></p>
+
+    <div class="curriculum-link">
+      <a href="#"><i class="fas fa-clipboard-list" aria-hidden="true"></i> Curriculum Evaluation</a>
+    </div>
+
+    <div id="gradesNotice" class="portal-notice">
+      <div class="portal-notice__icon" id="gradesNoticeIcon" aria-hidden="true"><i class="fas fa-clipboard-list"></i></div>
+      <div class="portal-notice__body">
+        <div class="portal-notice__title" id="gradesNoticeTitle">Grades Unavailable</div>
+        <div class="portal-notice__text" id="gradesNoticeText"></div>
+      </div>
+    </div>
+    <div id="gradesContainer"><p>Loading grades...</p></div>
+    </main>
+    <div id="footer"></div>
+  </div>
+
+  <div id="accessibility"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/supabase-client.js"></script>
+  <script src="/js/supabase-service.js?v=6"></script>
+  <script src="../js/icons.js?v=2"></script>
+  <script src="../js/app.js?v=15"></script>
+  <script>
+    const student = initPage('grades');
+    document.getElementById('studentInfo').textContent = formatStudentName(student);
+    const container = document.getElementById('gradesContainer');
+    const notice = document.getElementById('gradesNotice');
+
+    function formatGpa(value) {
+      return value != null && value !== '' ? value : '—';
+    }
+
+    function renderGrades(terms) {
+      if (!terms.length) {
+        container.innerHTML = '';
+        return;
+      }
+
+      container.innerHTML = terms.map(term => `
+        <div class="semester-block">
+          <div class="semester-header">School Year ${term.schoolYear} ${(term.semester || '').toUpperCase()}</div>
+          <div class="grade-summary">
+            <div class="item"><span class="item-label">Admission Status</span>${student.admissionStatus || '—'}</div>
+            <div class="item"><span class="item-label">Scholastic Status</span>${student.scholasticStatus || '—'}</div>
+            <div class="item"><span class="item-label">Strand</span>${student.strandFull || student.strand || '—'}</div>
+            <div class="item"><span class="item-label">GWA</span>${formatGpa(term.gpa)}</div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Subject Code</th><th>Description</th><th>Faculty Name</th>
+                  <th>Units</th><th>Sect Code</th><th>Final Grade</th><th>Descriptor</th><th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${(term.subjects || []).map((s, i) => `
+                  <tr>
+                    <td>${i + 1}</td>
+                    <td>${s.code || '—'}</td>
+                    <td>${s.description || '—'}</td>
+                    <td>${s.faculty || 'TBA'}</td>
+                    <td>${s.units ?? '—'}</td>
+                    <td>${s.sectCode || '—'}</td>
+                    <td>${s.finalGrade != null && s.finalGrade !== '' ? Math.round(Number(s.finalGrade)) : '—'}</td>
+                    <td>${s.descriptor || (s.finalGrade != null && s.finalGrade !== '' ? '—' : '—')}</td>
+                    <td>${s.status || 'INC'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function showNotice(message, tone = 'info') {
+      const icon = document.getElementById('gradesNoticeIcon');
+      const title = document.getElementById('gradesNoticeTitle');
+      const text = document.getElementById('gradesNoticeText');
+      const titles = {
+        info: 'Grades Unavailable',
+        pending: 'Enrollment Pending',
+        rejected: 'Enrollment Not Approved',
+        error: 'Unable to Load Grades',
+        success: 'Grades Information',
+      };
+      const icons = {
+        info: 'fa-clipboard-list',
+        pending: 'fa-hourglass-half',
+        rejected: 'fa-times-circle',
+        error: 'fa-exclamation-triangle',
+        success: 'fa-check-circle',
+      };
+
+      notice.className = 'portal-notice portal-notice--' + tone;
+      notice.style.display = 'flex';
+      title.textContent = titles[tone] || titles.info;
+      icon.innerHTML = `<i class="fas ${icons[tone] || icons.info}" aria-hidden="true"></i>`;
+      text.textContent = message;
+    }
+
+    async function loadGrades() {
+      container.innerHTML = '<p>Loading grades...</p>';
+      notice.style.display = 'none';
+
+      const result = typeof SupabaseService !== 'undefined'
+        ? await SupabaseService.getStudentGrades(student.id)
+        : { enrollmentStatus: 'none', message: 'You have not enrolled for this semester yet. Go to Enrollment to select your subjects.', terms: [] };
+
+      const terms = result.terms || [];
+      const status = result.enrollmentStatus || 'none';
+
+      if (status === 'none') {
+        container.innerHTML = '';
+        showNotice(result.message || 'No grades available yet.', 'info');
+        return;
+      }
+
+      if (status === 'past_only') {
+        notice.style.display = 'none';
+        renderGrades(terms);
+        return;
+      }
+
+      if (status === 'pending') {
+        container.innerHTML = '';
+        showNotice(result.message || 'Your enrollment is pending admin approval.', 'pending');
+        return;
+      }
+
+      if (status === 'rejected') {
+        container.innerHTML = '';
+        showNotice(result.message || 'Your enrollment was not approved.', 'rejected');
+        return;
+      }
+
+      if (!terms.length) {
+        container.innerHTML = '';
+        showNotice('You are enrolled, but no subjects are on record yet. Please contact the registrar if this looks wrong.', 'info');
+        return;
+      }
+
+      const hasAnyGrade = terms.some(term =>
+        (term.subjects || []).some(s => s.finalGrade != null && s.finalGrade !== '')
+      );
+
+      if (!hasAnyGrade) {
+        showNotice('Your enrolled subjects are listed below. Grades use the percentage scale (75 and above is passing).', 'success');
+      }
+
+      renderGrades(terms);
+    }
+
+    loadGrades();
+  </script>
+</body>
+</html>

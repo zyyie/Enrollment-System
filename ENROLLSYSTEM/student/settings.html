@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings - Geranova Senior High School</title>
+  <link rel="stylesheet" href="../css/styles.css?v=22">
+</head>
+<body class="student-layout">
+  <div id="studentSidebarWrap"></div>
+  <div class="student-main">
+    <div id="studentHeader"></div>
+    <main class="main-content">
+      <p class="settings-section-lead">Manage your enrollment portal notifications, security, and display preferences.</p>
+
+      <div class="card">
+        <div class="card-header">Notifications</div>
+        <div class="card-body">
+          <div class="settings-toggle-item">
+            <div class="settings-toggle-copy">
+              <strong>Email Notifications</strong>
+              <p class="settings-help">Receive enrollment approval, account, and registrar updates in your email.</p>
+            </div>
+            <label class="settings-switch">
+              <input type="checkbox" id="prefEmailNotif">
+              <span class="settings-switch-slider"></span>
+            </label>
+          </div>
+          <div class="settings-toggle-item">
+            <div class="settings-toggle-copy">
+              <strong>Enrollment Updates</strong>
+              <p class="settings-help">Get alerts when your subject enrollment is reviewed or approved.</p>
+            </div>
+            <label class="settings-switch">
+              <input type="checkbox" id="prefEnrollmentUpdates">
+              <span class="settings-switch-slider"></span>
+            </label>
+          </div>
+          <div class="settings-toggle-item">
+            <div class="settings-toggle-copy">
+              <strong>Grade Release Alerts</strong>
+              <p class="settings-help">Notify me when new grades are posted on the portal.</p>
+            </div>
+            <label class="settings-switch">
+              <input type="checkbox" id="prefGradeAlerts">
+              <span class="settings-switch-slider"></span>
+            </label>
+          </div>
+          <div class="settings-toggle-item">
+            <div class="settings-toggle-copy">
+              <strong>Payment Reminders</strong>
+              <p class="settings-help">Remind me about pending account balances and payment deadlines.</p>
+            </div>
+            <label class="settings-switch">
+              <input type="checkbox" id="prefPaymentReminders">
+              <span class="settings-switch-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Security</div>
+        <div class="card-body">
+          <div class="settings-note">
+            <strong>Password and login changes</strong> are handled by the Registrar Office for student accounts.
+            Visit the registrar or contact the school admin if you need to reset your password or update your login details.
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Display & Portal</div>
+        <div class="card-body">
+          <div class="settings-toggle-item">
+            <div class="settings-toggle-copy">
+              <strong>Compact Sidebar</strong>
+              <p class="settings-help">Start with the sidebar collapsed on desktop for a wider workspace.</p>
+            </div>
+            <label class="settings-switch">
+              <input type="checkbox" id="prefCompactSidebar">
+              <span class="settings-switch-slider"></span>
+            </label>
+          </div>
+          <div class="settings-toggle-item">
+            <div class="settings-toggle-copy">
+              <strong>Show Enrollment Tips</strong>
+              <p class="settings-help">Display helpful enrollment reminders on the Enrollment page.</p>
+            </div>
+            <label class="settings-switch">
+              <input type="checkbox" id="prefEnrollmentTips">
+              <span class="settings-switch-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </main>
+    <div id="footer"></div>
+  </div>
+
+  <div id="accessibility"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/supabase-client.js"></script>
+  <script src="/js/supabase-service.js?v=6"></script>
+  <script src="../js/data.js?v=9"></script>
+  <script src="../js/icons.js?v=2"></script>
+  <script src="../js/app.js?v=15"></script>
+  <script>
+    const student = initPage('settings');
+
+    const SETTINGS_KEY = 'shsStudentSettings';
+    const defaultSettings = {
+      emailNotifications: true,
+      enrollmentUpdates: true,
+      gradeAlerts: true,
+      paymentReminders: true,
+      compactSidebar: false,
+      enrollmentTips: true,
+    };
+
+    function loadSettings() {
+      try {
+        const raw = localStorage.getItem(SETTINGS_KEY);
+        return raw ? { ...defaultSettings, ...JSON.parse(raw) } : { ...defaultSettings };
+      } catch {
+        return { ...defaultSettings };
+      }
+    }
+
+    function saveSettings(settings) {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    }
+
+    const prefs = loadSettings();
+    const fields = {
+      prefEmailNotif: 'emailNotifications',
+      prefEnrollmentUpdates: 'enrollmentUpdates',
+      prefGradeAlerts: 'gradeAlerts',
+      prefPaymentReminders: 'paymentReminders',
+      prefCompactSidebar: 'compactSidebar',
+      prefEnrollmentTips: 'enrollmentTips',
+    };
+
+    Object.entries(fields).forEach(([elementId, key]) => {
+      const input = document.getElementById(elementId);
+      if (!input) return;
+      input.checked = Boolean(prefs[key]);
+      input.addEventListener('change', () => {
+        prefs[key] = input.checked;
+        saveSettings(prefs);
+        if (key === 'compactSidebar') {
+          document.body.classList.toggle('sidebar-collapsed', input.checked);
+        }
+      });
+    });
+
+    if (prefs.compactSidebar) {
+      document.body.classList.add('sidebar-collapsed');
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Schedule - Enrollment System</title>
+  <link rel="stylesheet" href="../css/styles.css?v=22">
+</head>
+<body class="student-layout">
+  <div id="studentSidebarWrap"></div>
+  <div class="student-main">
+    <div id="studentHeader"></div>
+    <main class="main-content">
+    <h1 class="page-title" id="scheduleTitle"></h1>
+
+    <div id="scheduleNotice" class="portal-notice">
+      <div class="portal-notice__icon" id="scheduleNoticeIcon" aria-hidden="true"><i class="fas fa-calendar-alt"></i></div>
+      <div class="portal-notice__body">
+        <div class="portal-notice__title" id="scheduleNoticeTitle">Schedule Unavailable</div>
+        <div class="portal-notice__text" id="scheduleNoticeText"></div>
+      </div>
+    </div>
+
+    <div class="card" id="scheduleCard">
+      <div class="card-header" id="scheduleHeader"></div>
+      <div class="card-body" style="padding:0;">
+        <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Subject Code</th>
+              <th>Description</th>
+              <th>Lec</th>
+              <th>Lab</th>
+              <th>Unit</th>
+              <th>Schedule</th>
+            </tr>
+          </thead>
+          <tbody id="scheduleBody"></tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+    </main>
+    <div id="footer"></div>
+  </div>
+
+  <div id="accessibility"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/supabase-client.js"></script>
+  <script src="/js/supabase-service.js?v=6"></script>
+  <script src="../js/icons.js?v=2"></script>
+  <script src="../js/app.js?v=15"></script>
+  <script>
+    const student = initPage('schedule');
+    document.getElementById('scheduleTitle').textContent = `School Year ${student.schoolYear} - ${student.semester}`;
+    document.getElementById('scheduleHeader').textContent = formatStudentName(student);
+
+    function renderScheduleRows(rows) {
+      return rows.map((s, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td>${s.code || ''}</td>
+          <td>${s.description || ''}</td>
+          <td>${s.lec ?? ''}</td>
+          <td>${s.lab ?? ''}</td>
+          <td>${s.unit ?? ''}</td>
+          <td>${s.schedule || 'TBA'}</td>
+        </tr>
+      `).join('');
+    }
+
+    function showNotice(message, tone = 'info') {
+      const notice = document.getElementById('scheduleNotice');
+      const icon = document.getElementById('scheduleNoticeIcon');
+      const title = document.getElementById('scheduleNoticeTitle');
+      const text = document.getElementById('scheduleNoticeText');
+      const titles = {
+        info: 'Schedule Unavailable',
+        pending: 'Enrollment Pending',
+        rejected: 'Enrollment Not Approved',
+        error: 'Unable to Load Schedule',
+      };
+      const icons = {
+        info: 'fa-calendar-alt',
+        pending: 'fa-hourglass-half',
+        rejected: 'fa-times-circle',
+        error: 'fa-exclamation-triangle',
+      };
+
+      notice.className = 'portal-notice portal-notice--' + tone;
+      notice.style.display = 'flex';
+      title.textContent = titles[tone] || titles.info;
+      icon.innerHTML = `<i class="fas ${icons[tone] || icons.info}" aria-hidden="true"></i>`;
+      text.textContent = message;
+    }
+
+    async function loadSchedule() {
+      const tbody = document.getElementById('scheduleBody');
+      const card = document.getElementById('scheduleCard');
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;">Loading schedule...</td></tr>';
+
+      const result = typeof SupabaseService !== 'undefined'
+        ? await SupabaseService.getStudentStrandSchedule(student.id)
+        : {
+            enrollmentStatus: 'none',
+            message: 'You have not enrolled for this semester yet. Go to Enrollment to select your subjects.',
+            schedule: [],
+          };
+
+      const rows = result.schedule || [];
+      const status = result.enrollmentStatus || 'none';
+
+      if (status === 'none') {
+        card.style.display = 'none';
+        showNotice(result.message || 'You have not enrolled for this semester yet. Go to Enrollment to select your subjects.', 'info');
+        return;
+      }
+
+      if (status === 'error') {
+        card.style.display = 'none';
+        showNotice(result.message || 'Unable to load your class schedule.', 'error');
+        return;
+      }
+
+      if (status === 'pending') {
+        card.style.display = 'none';
+        showNotice(result.message || 'Your enrollment is pending admin approval.', 'pending');
+        return;
+      }
+
+      if (status === 'rejected') {
+        card.style.display = 'none';
+        showNotice(result.message || 'Your enrollment was not approved.', 'rejected');
+        return;
+      }
+
+      if (!rows.length) {
+        card.style.display = 'none';
+        showNotice(
+          result.message ||
+          'Your enrollment is approved, but no class schedule is linked yet. Please contact the registrar.',
+          'pending'
+        );
+        return;
+      }
+
+      document.getElementById('scheduleNotice').style.display = 'none';
+      card.style.display = '';
+      tbody.innerHTML = renderScheduleRows(rows);
+    }
+
+    loadSchedule();
+  </script>
+</body>
+</html>

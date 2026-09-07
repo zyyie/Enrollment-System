@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment - Enrollment System</title>
+  <link rel="stylesheet" href="../css/styles.css?v=26">
+  <style>
+    .payment-status-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 18px 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+    }
+    .payment-status-banner.approved { border-color: #86efac; background: #f0fdf4; }
+    .payment-status-banner.pending { border-color: #fcd34d; background: #fffbeb; }
+    .payment-status-banner.unpaid { border-color: #fca5a5; background: #fef2f2; }
+    .payment-status-banner i { font-size: 28px; margin-top: 2px; }
+    .payment-status-banner.approved i { color: #16a34a; }
+    .payment-status-banner.pending i { color: #d97706; }
+    .payment-status-banner.unpaid i { color: #dc2626; }
+    .payment-status-banner h3 { margin: 0 0 6px; font-size: 17px; color: #0f172a; }
+    .payment-status-banner p { margin: 0; font-size: 14px; color: #475569; line-height: 1.5; }
+    .payment-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .payment-summary-item {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .payment-summary-item label {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #64748b;
+      margin-bottom: 4px;
+    }
+    .payment-summary-item strong {
+      font-size: 20px;
+      color: #1a3a6b;
+    }
+    .payment-summary-item.balance strong { color: #dc2626; }
+    .payment-summary-item.paid strong { color: #16a34a; }
+    .status-pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .status-pill.approved { background: #dcfce7; color: #166534; }
+    .status-pill.pending { background: #fef3c7; color: #92400e; }
+    .status-pill.unpaid { background: #fee2e2; color: #991b1b; }
+  </style>
+</head>
+<body class="student-layout">
+  <div id="studentSidebarWrap"></div>
+  <div class="student-main">
+    <div id="studentHeader"></div>
+    <main class="main-content">
+      <p class="student-info" id="studentInfo"></p>
+
+      <div id="paymentBanner" style="display:none;"></div>
+
+      <div class="card">
+        <div class="card-body" style="padding:20px;">
+          <div id="paymentBody"><p>Loading payment information...</p></div>
+        </div>
+      </div>
+    </main>
+    <div id="footer"></div>
+  </div>
+
+  <div id="accessibility"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/supabase-client.js"></script>
+  <script src="/js/supabase-service.js?v=6"></script>
+  <script src="../js/icons.js?v=2"></script>
+  <script src="../js/app.js?v=15"></script>
+  <script>
+    const student = initPage('accounts');
+    document.getElementById('studentInfo').textContent = formatStudentName(student);
+
+    function peso(amount) {
+      const n = Number(amount || 0);
+      return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function statusMeta(status) {
+      if (status === 'approved') {
+        return {
+          cls: 'approved',
+          icon: 'fa-circle-check',
+          title: 'Payment Approved',
+          text: 'Your tuition payment has been verified. You have no remaining balance for this term.',
+        };
+      }
+      if (status === 'pending') {
+        return {
+          cls: 'pending',
+          icon: 'fa-clock',
+          title: 'Payment Pending Review',
+          text: 'Your payment is being reviewed by the registrar. Please wait for approval.',
+        };
+      }
+      return {
+        cls: 'unpaid',
+        icon: 'fa-circle-exclamation',
+        title: 'Payment Required',
+        text: 'Please pay your tuition at the cashier and wait for the registrar to approve your payment.',
+      };
+    }
+
+    function renderBanner(payment) {
+      const meta = statusMeta(payment?.status || 'unpaid');
+      const banner = document.getElementById('paymentBanner');
+      banner.style.display = 'block';
+      banner.innerHTML = `
+        <div class="payment-status-banner ${meta.cls}">
+          <i class="fas ${meta.icon}"></i>
+          <div>
+            <h3>${meta.title}</h3>
+            <p>${meta.text}</p>
+          </div>
+        </div>`;
+    }
+
+    function renderPayment(payment) {
+      renderBanner(payment);
+      const balance = Number(payment.balance || 0);
+      const isCleared = payment.status === 'approved' && balance <= 0;
+
+      document.getElementById('paymentBody').innerHTML = `
+        <p style="margin:0 0 16px;color:#64748b;font-size:14px;">
+          School Year ${payment.schoolYear || '—'} · ${payment.semester || 'Current Term'}
+        </p>
+        <div class="payment-summary-grid">
+          <div class="payment-summary-item">
+            <label>Assessment</label>
+            <strong>${peso(payment.assessmentAmount)}</strong>
+          </div>
+          <div class="payment-summary-item paid">
+            <label>Amount Paid</label>
+            <strong>${peso(payment.amountPaid)}</strong>
+          </div>
+          <div class="payment-summary-item balance">
+            <label>Balance</label>
+            <strong>${isCleared ? peso(0) : peso(balance)}</strong>
+          </div>
+          <div class="payment-summary-item">
+            <label>Status</label>
+            <span class="status-pill ${payment.status || 'unpaid'}">${payment.status || 'unpaid'}</span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>O.R. Number</th>
+                <th>Payment Date</th>
+                <th>Mode</th>
+                <th>Approved</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>${payment.orNumber || '—'}</td>
+                <td>${payment.paymentDate || '—'}</td>
+                <td>${(payment.paymentMode || 'cashier').toUpperCase()}</td>
+                <td>${payment.approvedAt ? new Date(payment.approvedAt).toLocaleDateString('en-PH') : '—'}</td>
+                <td>${payment.notes || '—'}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        ${isCleared ? `
+          <p style="margin:16px 0 0;padding:12px 14px;background:#f0fdf4;border-radius:8px;color:#166534;font-size:14px;">
+            <i class="fas fa-check-circle"></i> You are fully paid for this term. No further payment is required.
+          </p>
+          <div style="margin-top:20px;text-align:center;">
+            <button type="button" class="btn-cor" onclick="openRegistrationCertificate()">
+              <i class="fas fa-file-pdf"></i> View Certificate of Registration
+            </button>
+            <p style="margin:10px 0 0;font-size:12px;color:#64748b;">Official registration receipt for ${payment.schoolYear || 'this term'} · ${payment.semester || 'current semester'}</p>
+          </div>` : `
+          <p style="margin:16px 0 0;padding:12px 14px;background:#fffbeb;border-radius:8px;color:#92400e;font-size:14px;">
+            <i class="fas fa-info-circle"></i> After paying at the cashier, the registrar will approve your payment here.
+          </p>`}
+      `;
+    }
+
+    function openRegistrationCertificate() {
+      const url = '/api/student/registration-certificate?id=' + encodeURIComponent(student.id);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+
+    async function loadPayment() {
+      const body = document.getElementById('paymentBody');
+      try {
+        const res = await fetch('/api/student/payment?studentId=' + encodeURIComponent(student.id));
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || 'Could not load payment status');
+
+        const data = json.data || {};
+        const payments = data.payments || [];
+
+        if (data.enrollmentStatus === 'none' || !payments.length) {
+          document.getElementById('paymentBanner').style.display = 'none';
+          body.innerHTML = `<p style="color:#64748b;">${data.message || 'No payment record yet. Enroll for the current term first.'}</p>`;
+          return;
+        }
+
+        if (data.enrollmentStatus === 'pending') {
+          document.getElementById('paymentBanner').style.display = 'none';
+          body.innerHTML = '<p style="color:#64748b;">Your enrollment is still pending approval. Payment details will appear once you are officially enrolled.</p>';
+          return;
+        }
+
+        renderPayment(payments[0]);
+      } catch (err) {
+        document.getElementById('paymentBanner').style.display = 'none';
+        body.innerHTML = `<p style="color:#b91c1c;">${err.message}</p>`;
+      }
+    }
+
+    loadPayment();
+  </script>
+</body>
+</html>
