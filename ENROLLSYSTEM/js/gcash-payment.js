@@ -23,11 +23,11 @@ const GcashPayment = (() => {
       console.warn('Could not load GCash config:', err);
     }
     config = {
-      merchantName: 'Geranova Senior High School',
+      merchantName: 'Senior High School',
       merchantNumber: '0945 661 0582',
       qrImage: '/assets/gcash-qr.png',
       amount: window.SUPABASE_CONFIG?.enrollmentFee || 2500,
-      schoolName: 'Geranova Senior High School',
+      schoolName: 'Senior High School',
     };
     return config;
   }

@@ -59,10 +59,6 @@ function renderStudentHomeWelcome(student) {
         ${section ? `<span class="home-badge">${section}</span>` : ''}
       </div>
     </div>
-    <div class="home-welcome-visual" aria-hidden="true">
-      <img src="../assets/geranova-logo.png" alt="" class="home-welcome-logo">
-      <p class="home-welcome-motto">Learn • Lead • Serve</p>
-    </div>
   `;
 }
 
@@ -115,8 +111,7 @@ function renderStudentSidebar(activePage) {
   return `
     <aside class="student-sidebar" id="studentSidebar">
       <div class="student-sidebar-brand">
-        <img src="../assets/geranova-logo.png" alt="Geranova Senior High School Logo" class="school-logo xs">
-        <span>Geranova Senior High School</span>
+        <span>Senior High School</span>
       </div>
       <nav class="student-sidebar-nav">
         ${navLinks}
@@ -409,7 +404,7 @@ function initLoginPage() {
   }
 
   const enrollNowLink = document.getElementById('enrollNowLink');
-  document.getElementById('loginTitle').textContent = 'Geranova Senior High School';
+  document.getElementById('loginTitle').textContent = 'Senior High School';
   document.getElementById('loginSubtitle').textContent = 'Sign in to your account';
   document.getElementById('idLabel').textContent = 'Student ID';
   document.getElementById('studentId').placeholder = '2026-00145-SHS-0';
