@@ -21,46 +21,6 @@ const ENROLLMENT_TRACKS = {
 
 const ENROLLMENT_STRANDS = ["STEM", "ABM", "HUMSS", "ICT", "COOKERY", "EIM"];
 
-const ENROLLMENT_SECTION_LETTERS = ["A", "B"];
-
-const ENROLLMENT_SECTION_DAY_TIMES = {
-  A: "MW 9:00AM-10:30AM",
-  B: "TTh 1:00PM-2:30PM"
-};
-
-const ENROLLMENT_SECTION_NAMES_BY_GRADE = {
-  "Grade 12": {
-    STEM: ["Rizal", "Bonifacio"],
-    ABM: ["Aguinaldo", "Mabini"],
-    HUMSS: ["Luna", "Jacinto"],
-    ICT: ["Del Pilar", "Silang"],
-    COOKERY: ["Aquino", "Malvar"],
-    EIM: ["Zamora", "Gomez"]
-  },
-  "Grade 11": {
-    STEM: ["Hope", "Fortitude"],
-    ABM: ["Faith", "Integrity"],
-    HUMSS: ["Perseverance", "Courage"],
-    ICT: ["Wisdom", "Compassion"],
-    COOKERY: ["Resilience", "Justice"],
-    EIM: ["Humility", "Kindness"]
-  }
-};
-
-function sectionSlotName(strandCode, gradeLevel, slotKey) {
-  const strand = String(strandCode || "STEM").toUpperCase();
-  const slot = String(slotKey || "A").toUpperCase();
-  const slotIndex = slot === "A" ? 0 : 1;
-  const names = (ENROLLMENT_SECTION_NAMES_BY_GRADE[gradeLevel] || {})[strand];
-  return names ? names[slotIndex] : slot;
-}
-
-function formatSectionName(strandCode, gradeLevel, slotKey) {
-  const strand = String(strandCode || "STEM").toUpperCase();
-  const gradeNum = _gradeNum(gradeLevel);
-  return `${strand} ${gradeNum}-${sectionSlotName(strand, gradeLevel, slotKey)}`;
-}
-
 const ENROLLMENT_CURRICULUM = {
   "Grade 11": {
     "1st": {
@@ -256,31 +216,11 @@ function _gradeNum(gradeLevel) {
 
 function buildStrandSchedules(gradeLevel, semester, subjectCode, dayTime, slots) {
   const gradeNum = _gradeNum(gradeLevel);
-  const schedules = [];
-  ENROLLMENT_STRANDS.forEach((strand, strandIndex) => {
-    ENROLLMENT_SECTION_LETTERS.forEach((letter, letterIndex) => {
-      schedules.push({
-        id: `${subjectCode}-${strand}-${gradeNum}-${semester}-${letter}`,
-        slots: (slots || 28) - strandIndex * 2 - letterIndex,
-        section: formatSectionName(strand, gradeLevel, letter),
-        dayTime: letter === 'A'
-          ? (dayTime || ENROLLMENT_SECTION_DAY_TIMES.A)
-          : ENROLLMENT_SECTION_DAY_TIMES.B
-      });
-    });
-  });
-  return schedules;
-}
-
-function buildSpecializedSchedules(strand, gradeLevel, semester, subjectCode, dayTime, slots) {
-  const gradeNum = _gradeNum(gradeLevel);
-  return ENROLLMENT_SECTION_LETTERS.map((letter, index) => ({
-    id: `${subjectCode}-${strand}-${gradeNum}-${semester}-${letter}`,
-    slots: (slots || 25) - index * 3,
-    section: formatSectionName(strand, gradeLevel, letter),
-    dayTime: letter === 'A'
-      ? (dayTime || 'TTh 1:00PM-2:30PM')
-      : ENROLLMENT_SECTION_DAY_TIMES.B
+  return ENROLLMENT_STRANDS.map((strand, index) => ({
+    id: `${subjectCode}-${strand}-${gradeNum}-${semester}-${index + 1}`,
+    slots: (slots || 28) - index * 2,
+    section: `${strand} ${gradeNum}-A`,
+    dayTime: dayTime || 'MW 9:00AM-10:30AM'
   }));
 }
 
@@ -301,6 +241,7 @@ function buildEnrollmentSubjectsCatalog() {
         });
       });
       Object.entries(config.specialized || {}).forEach(([strand, specs]) => {
+        const gradeNum = _gradeNum(gradeLevel);
         specs.forEach((spec) => {
           catalog.push({
             ...spec,
@@ -308,14 +249,12 @@ function buildEnrollmentSubjectsCatalog() {
             semester,
             strand,
             type: 'specialized',
-            schedules: buildSpecializedSchedules(
-              strand,
-              gradeLevel,
-              semester,
-              spec.code,
-              spec.dayTime,
-              25
-            )
+            schedules: [{
+              id: `${spec.code}-${strand}-${gradeNum}-${semester}`,
+              slots: 25,
+              section: `${strand} ${gradeNum}-A`,
+              dayTime: spec.dayTime || 'TTh 1:00PM-2:30PM'
+            }]
           });
         });
       });
@@ -340,4 +279,65 @@ function subjectsForTerm(strandCode, gradeLevel, semesterCode) {
 
 function requiredSubjectsCount(strandCode, gradeLevel, semesterCode) {
   return subjectsForTerm(strandCode, gradeLevel, semesterCode).length;
+}
+
+const ENROLLMENT_SECTION_NAMES_BY_GRADE = {
+  'Grade 12': {
+    STEM: ['Rizal', 'Bonifacio'],
+    ABM: ['Aguinaldo', 'Mabini'],
+    HUMSS: ['Luna', 'Jacinto'],
+    ICT: ['Zamora', 'Gomez'],
+    COOKERY: ['Del Pilar', 'Silang'],
+    EIM: ['Aquino', 'Malvar'],
+  },
+  'Grade 11': {
+    STEM: ['Hope', 'Fortitude'],
+    ABM: ['Faith', 'Integrity'],
+    HUMSS: ['Perseverance', 'Courage'],
+    ICT: ['Humility', 'Kindness'],
+    COOKERY: ['Wisdom', 'Compassion'],
+    EIM: ['Resilience', 'Justice'],
+  },
+};
+
+function sectionSlotName(strandCode, gradeLevel, slotKey) {
+  const code = String(strandCode || 'STEM').toUpperCase();
+  const slot = String(slotKey || 'A').toUpperCase();
+  const names = (ENROLLMENT_SECTION_NAMES_BY_GRADE[gradeLevel] || {})[code];
+  if (!names) return slot;
+  if (slot === 'A') return names[0];
+  if (slot === 'B') return names[1] || slot;
+  return slot;
+}
+
+function formatSectionName(strandCode, gradeLevel, slotKey) {
+  const code = String(strandCode || 'STEM').toUpperCase();
+  const gradeNum = String(gradeLevel || '').includes('11') ? '11' : '12';
+  return `${code} ${gradeNum}-${sectionSlotName(code, gradeLevel, slotKey)}`;
+}
+
+/** Old Supabase section-names.sql labels -> slot A/B (until fix-section-names-match-curriculum.sql is run). */
+const LEGACY_SECTION_SUFFIX_TO_SLOT = {
+  'Grade 11|ICT': { WISDOM: 'A', COMPASSION: 'B' },
+  'Grade 11|COOKERY': { RESILIENCE: 'A', JUSTICE: 'B' },
+  'Grade 11|EIM': { HUMILITY: 'A', KINDNESS: 'B' },
+  'Grade 12|ICT': { 'DEL PILAR': 'A', SILANG: 'B' },
+  'Grade 12|COOKERY': { AQUINO: 'A', MALVAR: 'B' },
+  'Grade 12|EIM': { ZAMORA: 'A', GOMEZ: 'B' },
+};
+
+function sectionSlotLetterFromSchedule(schedule, strandCode, gradeLevel) {
+  const suffix = (() => {
+    const raw = String(schedule?.section || schedule?.sectionName || '').trim();
+    const dash = raw.lastIndexOf('-');
+    return (dash === -1 ? raw : raw.slice(dash + 1)).trim().toUpperCase();
+  })();
+  if (!suffix) return null;
+  for (const slot of ['A', 'B']) {
+    if (suffix === sectionSlotName(strandCode, gradeLevel, slot).toUpperCase()) return slot;
+  }
+  const legacy = LEGACY_SECTION_SUFFIX_TO_SLOT[`${gradeLevel}|${String(strandCode || '').toUpperCase()}`];
+  if (legacy && legacy[suffix]) return legacy[suffix];
+  if (suffix === 'A' || suffix === 'B') return suffix;
+  return null;
 }

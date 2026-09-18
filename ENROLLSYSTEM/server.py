@@ -21,6 +21,7 @@ from email.mime.image import MIMEImage
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -44,6 +45,7 @@ from shared.services.storage import (
     upload_enrollment_photo,
 )
 from shared.validation.admission import validate_admission_fields, validate_admission_files
+from shared.services.brand import DEFAULT_SCHOOL_NAME, display_school_name, scrub_legacy_brand_text
 
 PORT = 8000
 ROOT = Path(__file__).parent
@@ -82,10 +84,10 @@ SUPABASE_SECRET_KEY = ENV.get("SUPABASE_SECRET_KEY", "")
 GMAIL_USER = ENV.get("GMAIL_USER", "").strip().lower()
 GMAIL_APP_PASSWORD = normalize_gmail_password(ENV.get("GMAIL_APP_PASSWORD", ""))
 ADMIN_EMAIL = (ENV.get("ADMIN_EMAIL") or GMAIL_USER).strip().lower()
-SCHOOL_NAME = ENV.get("SCHOOL_NAME", "Geranova Senior High School")
+SCHOOL_NAME = display_school_name(ENV.get("SCHOOL_NAME", "Enrollment Management System"))
 PAYMONGO_SECRET_KEY = ENV.get("PAYMONGO_SECRET_KEY", "")
 ENROLLMENT_FEE = float(ENV.get("ENROLLMENT_FEE", "2500"))
-GCASH_MERCHANT_NAME = ENV.get("GCASH_MERCHANT_NAME", SCHOOL_NAME)
+GCASH_MERCHANT_NAME = display_school_name(ENV.get("GCASH_MERCHANT_NAME", SCHOOL_NAME))
 GCASH_MERCHANT_NUMBER = ENV.get("GCASH_MERCHANT_NUMBER", "0945 661 0582")
 GCASH_QR_IMAGE = ENV.get("GCASH_QR_IMAGE", "assets/gcash-qr.png")
 ADMIN_PORTAL_URL = ENV.get("ADMIN_PORTAL_URL", "http://localhost:8001").rstrip("/")
@@ -2292,9 +2294,10 @@ def send_email(to_addr, subject, html_body, attachments=None):
         msg = MIMEMultipart()
         msg.attach(MIMEText(html_body, "html"))
 
-    msg["From"] = f"{SCHOOL_NAME} <{GMAIL_USER}>"
+    msg["From"] = formataddr((DEFAULT_SCHOOL_NAME, GMAIL_USER))
     msg["To"] = to_addr
-    msg["Subject"] = subject
+    msg["Subject"] = scrub_legacy_brand_text(subject)
+    print(f"[Email] From display name: {DEFAULT_SCHOOL_NAME!r} | To: {to_addr}")
     domain = GMAIL_USER.split("@", 1)[-1] if "@" in GMAIL_USER else "localhost"
     message_id = f"{uuid.uuid4().hex}@{domain}"
     msg["Message-ID"] = f"<{message_id}>"

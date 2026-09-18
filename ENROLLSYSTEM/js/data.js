@@ -1,4 +1,4 @@
-// Sample Senior High School student data
+// Sample Enrollment Management System student data
 const SAMPLE_STUDENT = {
   id: '2026-00145-SHS-0',
   password: 'student123',
@@ -22,7 +22,7 @@ const SAMPLE_STUDENT = {
 const INBOX_MESSAGES = [
   { date: 'March 28, 2026', title: 'Work Immersion Orientation 2026', hasPdf: true },
   { date: 'February 14, 2026', title: 'Career Guidance Week - STEM Track', hasPdf: true },
-  { date: 'January 20, 2026', title: 'Senior High School General Assembly', hasPdf: true },
+  { date: 'January 20, 2026', title: 'Enrollment Management System General Assembly', hasPdf: true },
   { date: 'December 5, 2025', title: 'Enrollment Reminder - Second Semester', hasPdf: false },
   { date: 'November 11, 2025', title: 'College Application Seminar', hasPdf: true },
   { date: 'October 3, 2025', title: 'Science Fair Registration Open', hasPdf: true },

@@ -66,7 +66,7 @@ const AdmissionValidation = {
     if (age < this.MIN_SHS_AGE) {
       return {
         ok: false,
-        message: `You must be at least ${this.MIN_SHS_AGE} years old to enroll in Senior High School.`,
+        message: `You must be at least ${this.MIN_SHS_AGE} years old to enroll in Enrollment Management System.`,
       };
     }
     if (age > this.MAX_SHS_AGE) {

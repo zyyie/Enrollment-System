@@ -10,25 +10,39 @@ const GcashPayment = (() => {
     return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(amount) || 0);
   }
 
+  function sanitizeBrandName(name) {
+    return String(name || '')
+      .replace(/\bgeranova\b/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim() || 'Enrollment Management System';
+  }
+
+  function normalizeGcashConfig(raw) {
+    const cfg = { ...raw };
+    cfg.merchantName = sanitizeBrandName(cfg.merchantName);
+    cfg.schoolName = sanitizeBrandName(cfg.schoolName || cfg.merchantName);
+    return cfg;
+  }
+
   async function loadConfig() {
     if (config) return config;
     try {
       const res = await fetch('/api/payment/gcash/config');
       const data = await res.json();
       if (data.success) {
-        config = data;
+        config = normalizeGcashConfig(data);
         return config;
       }
     } catch (err) {
       console.warn('Could not load GCash config:', err);
     }
-    config = {
-      merchantName: 'Senior High School',
+    config = normalizeGcashConfig({
+      merchantName: 'Enrollment Management System',
       merchantNumber: '0945 661 0582',
       qrImage: '/assets/gcash-qr.png',
       amount: window.SUPABASE_CONFIG?.enrollmentFee || 2500,
-      schoolName: 'Senior High School',
-    };
+      schoolName: 'Enrollment Management System',
+    });
     return config;
   }
 

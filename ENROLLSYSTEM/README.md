@@ -1,4 +1,4 @@
-# Geranova EMS — Student Portal
+# EMS — Student Portal
 
 Standalone **Student** application. No admin pages or faculty routes.
 
@@ -22,18 +22,18 @@ Open: **http://localhost:8000/index.html**
 ## Directory Tree
 
 ```
-ENROLLSYSTEM/               (Student portal)
-├── main.py                 # Entry point (port 8000)
-├── server.py               # Student API only
-├── login.html              # Student login
-├── enroll.html             # New admission wizard
-├── index.html              # Student landing
-├── student/                # Dashboard pages (home, enrollment, grades…)
-├── js/                     # Student frontend scripts
+ENROLLSYSTEM/ (Student portal)
+├── main.py # Entry point (port 8000)
+├── server.py # Student API only
+├── login.html # Student login
+├── enroll.html # New admission wizard
+├── index.html # Student landing
+├── student/ # Dashboard pages (home, enrollment, grades…)
+├── js/ # Student frontend scripts
 ├── css/
-├── supabase/               # Shared SQL migrations
-├── enrollment_curriculum.py
-├── assets/  images/
+├── supabase/ # Shared SQL migrations
+├── enrollment_curriculum.py (SHS curriculum — same file as project root after sync)
+├── assets/ images/
 ├── uploads/admissions/
 └── data/
 ```
@@ -53,10 +53,10 @@ ENROLLSYSTEM/               (Student portal)
 
 **Python 3.10+** — no pip packages required (stdlib only).
 
-## Admin Portal
+## Standalone
 
-Faculty/admin use the sibling folder: **`../ENROLLSYSTEM-ADMIN`** (port **8001**).
+This folder runs alone: `python server.py` → port **8000**. Admin (**8001**) and faculty (**8002**) are separate folders with their own `.env` (same Supabase keys).
 
-Run both at the same time:
-- Student: `cd ENROLLSYSTEM && python main.py` → :8000
-- Admin:   `cd ENROLLSYSTEM-ADMIN && python main.py` → :8001
+## Admin portal (optional second process)
+
+`ENROLLSYSTEM-ADMIN` on port **8001** — not required for the student site to start.

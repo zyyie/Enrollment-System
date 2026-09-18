@@ -71,14 +71,17 @@ function filterOfferingsByTerm(student, offerings) {
 }
 
 function enrollmentMatchesCurrentTerm(student, record) {
-  const subjects = record?.subjects;
+  if (!record) return false;
+  if (isLockedEnrollmentStatus(record.status)) return true;
+  const subjects = record.subjects;
   if (!Array.isArray(subjects) || !subjects.length) return false;
   if (typeof subjectsForTerm !== 'function') return true;
+  const sem = record.semesterCode || normalizeSemesterCode(student);
   const allowed = new Set(
     subjectsForTerm(
       normalizeStrandCode(student),
       normalizeGradeLevel(student),
-      normalizeSemesterCode(student)
+      sem
     ).map(subj => subj.code)
   );
   return subjects.every(subj => allowed.has(subj.code));
@@ -529,25 +532,32 @@ async function showWaitingView(student, record, access) {
   if (waiting) waiting.style.display = 'block';
 
   const grade = normalizeGradeLevel(student);
-  const sem = (access && access.semesterName) || getSemesterLabel(student);
-  const semCode = normalizeSemesterCode(student);
+  const sem = record?.semester || (access && access.semesterName) || getSemesterLabel(student);
+  const semCode = record?.semesterCode || normalizeSemesterCode(student);
   const nextSem = (access && access.nextSemesterLabel) || getNextSemesterLabel(semCode);
   const status = (record && record.status) || (access && access.currentEnrollmentStatus) || 'enrolled';
   const isPending = status === 'pending';
+  const isApproved = status === 'approved' || status === 'enrolled';
 
   const titleEl = document.getElementById('enrollmentWaitingTitle');
   const msgEl = document.getElementById('enrollmentWaitingMessage');
   const detailsEl = document.getElementById('enrollmentWaitingDetails');
 
   if (titleEl) {
-    titleEl.textContent = isPending
-      ? 'Enrollment Submitted — Pending Approval'
-      : `Already Enrolled — ${grade} ${sem}`;
+    if (isPending) {
+      titleEl.textContent = 'Enrollment Submitted — Pending Approval';
+    } else if (isApproved) {
+      titleEl.textContent = 'Enrollment Approved — Complete Payment';
+    } else {
+      titleEl.textContent = `Already Enrolled — ${grade} ${sem}`;
+    }
   }
 
   if (msgEl) {
     if (isPending) {
       msgEl.textContent = 'Na-submit mo na ang enrollment mo para sa term na ito. Hintayin ang approval ng Administrator. Pag na-approve na, magbayad sa Payment / Accounts at hintayin ang payment approval bago matanggap ang Registration Form sa email.';
+    } else if (isApproved) {
+      msgEl.textContent = 'Na-approve na ang enrollment mo. Kung nakapag-submit ka na ng payment, hintayin ang payment approval ng Registrar. Kung hindi pa, pumunta sa Payment / Accounts para magbayad. Ise-send ang Registration Form sa email pag na-approve ang payment.';
     } else {
       msgEl.textContent = `Tapos ka nang mag-enroll sa ${grade} — ${sem}. Hindi ka na pwedeng mag-enroll ulit sa term na ito. Maghintay hanggang buksan ng Admin ang enrollment para sa ${nextSem}.`;
     }
@@ -559,6 +569,11 @@ async function showWaitingView(student, record, access) {
     console.warn('Could not load offerings for enrolled view:', err);
   }
   updateOfferingCount(student);
+
+  const termEl = document.getElementById('termInfo');
+  if (termEl && sem) {
+    termEl.textContent = `${grade} · ${sem}`;
+  }
 
   if (detailsEl) {
     const strand = student.strandFull || student.strand || normalizeStrandCode(student);
@@ -610,14 +625,8 @@ function normalizeGradeLevel(student) {
 }
 
 function isCanonicalSectionName(sectionName, strandCode, gradeLevel) {
-  if (typeof formatSectionName !== 'function') return true;
-  const name = String(sectionName || '').trim().toUpperCase();
-  if (!name) return false;
-  const canonical = [
-    formatSectionName(strandCode, gradeLevel, 'A'),
-    formatSectionName(strandCode, gradeLevel, 'B'),
-  ].map(value => String(value || '').trim().toUpperCase());
-  return canonical.includes(name);
+  if (typeof sectionSlotLetterFromSchedule !== 'function') return true;
+  return sectionSlotLetterFromSchedule({ section: sectionName }, strandCode, gradeLevel) != null;
 }
 
 function sectionMatchesStudent(sectionName, strandCode, gradeLevel) {
@@ -669,6 +678,67 @@ function filterDemoSubjectsByStrand(strandCode, gradeLevel, semesterCode) {
 
 function getEnrollmentSubjectsList() {
   return activeEnrollmentSubjects || [];
+}
+
+/** Locked section slot A/B for this enrollment (one virtue block for all subjects). */
+let lockedEnrollmentSectionSlot = null;
+
+function schedulesVisibleForRow(subj, strandCode, gradeLevel) {
+  const list = (subj.schedules || []).filter(schedule =>
+    isCanonicalSectionName(schedule.section, strandCode, gradeLevel)
+  );
+  if (!lockedEnrollmentSectionSlot) return list;
+  return list.filter(s =>
+    sectionSlotLetterFromSchedule(s, strandCode, gradeLevel) === lockedEnrollmentSectionSlot
+  );
+}
+
+function updateEnrollmentSectionInfo() {
+  const el = document.getElementById('sectionInfo');
+  if (!el) return;
+  if (!lockedEnrollmentSectionSlot) {
+    el.textContent = '—';
+    return;
+  }
+  const student = getStudent();
+  const name = sectionSlotName(
+    normalizeStrandCode(student),
+    normalizeGradeLevel(student),
+    lockedEnrollmentSectionSlot,
+  );
+  el.textContent = name;
+}
+
+function syncEnrollmentSchedulesToSection(slot, skipIndex) {
+  const student = getStudent();
+  const strandCode = normalizeStrandCode(student);
+  const gradeLevel = normalizeGradeLevel(student);
+  const subjects = getEnrollmentSubjectsList();
+
+  subjects.forEach((subj, i) => {
+    if (skipIndex != null && i === skipIndex) return;
+    const sel = document.querySelector(`.schedule-select[data-index="${i}"]`);
+    const checkbox = document.querySelector(`.subject-check[data-index="${i}"]`);
+    if (!sel) return;
+    const match = (subj.schedules || []).find(s =>
+      sectionSlotLetterFromSchedule(s, strandCode, gradeLevel) === slot
+      && !ScheduleFormat.isScheduleFull(s)
+    );
+    if (match) {
+      sel.value = match.id;
+      if (checkbox) {
+        checkbox.disabled = false;
+      }
+    } else {
+      sel.value = '';
+      if (checkbox) {
+        checkbox.disabled = true;
+        checkbox.checked = false;
+      }
+    }
+  });
+  updateSubjectCount();
+  updateEnrollmentSectionInfo();
 }
 
 async function fetchEnrollmentOfferingsFromServer(student) {
@@ -726,6 +796,7 @@ async function loadEnrollmentSubjects(student) {
     offerings = filterDemoSubjectsByStrand(strandCode, gradeLevel, semesterCode);
   }
 
+  lockedEnrollmentSectionSlot = null;
   activeEnrollmentSubjects = offerings || [];
   activeRequiredSubjectCount = activeEnrollmentSubjects.length;
   activeEnrollmentLoadError = lastError;
@@ -800,7 +871,7 @@ function showCompletedView(student, access) {
   if (msgEl) {
     msgEl.innerHTML = `
       <strong>Grade 12 — 2nd Semester Completed</strong><br>
-      Natapos mo na ang apat na enrollment stages ng Senior High School (Grade 11 Sem 1 → Grade 11 Sem 2 → Grade 12 Sem 1 → Grade 12 Sem 2).<br><br>
+      Natapos mo na ang apat na enrollment stages ng Enrollment Management System (Grade 11 Sem 1 → Grade 11 Sem 2 → Grade 12 Sem 1 → Grade 12 Sem 2).<br><br>
       Wala nang bagong enrollment na available sa account na ito. Para sa concerns, makipag-ugnayan sa Registrar's Office.
     `;
   }
@@ -848,6 +919,13 @@ function updateStrandStatusBar(student) {
 }
 
 async function initEnrollmentPage(student) {
+  let record = null;
+  if (typeof SupabaseService !== 'undefined' && SupabaseService.isEnabled()) {
+    record = await SupabaseService.getStudentEnrollment(student.id);
+  }
+  const mappedRecord = record ? mapSupabaseEnrollment(record) : null;
+  let localRecord = getEnrollmentRecord(student);
+
   const access = await fetchEnrollmentAccess(student);
   applyAccessToStudent(student, access);
   updatePageTitle(student);
@@ -859,26 +937,10 @@ async function initEnrollmentPage(student) {
     return;
   }
 
-  let record = null;
-  if (typeof SupabaseService !== 'undefined' && SupabaseService.isEnabled()) {
-    record = await SupabaseService.getStudentEnrollment(student.id);
-  }
-
-  const mappedRecord = record ? mapSupabaseEnrollment(record) : null;
-  let localRecord = getEnrollmentRecord(student);
-
-  if (mappedRecord && isLockedEnrollmentStatus(mappedRecord.status) && !enrollmentMatchesCurrentTerm(student, mappedRecord)) {
-    clearEnrollmentRecord(student);
-    localRecord = null;
-  } else if (localRecord && isLockedEnrollmentStatus(localRecord.status) && !enrollmentMatchesCurrentTerm(student, localRecord)) {
-    clearEnrollmentRecord(student);
-    localRecord = null;
-  }
-
   if (isValidLockedEnrollment(student, mappedRecord)) {
     await showWaitingView(student, mappedRecord, access);
-      return;
-    }
+    return;
+  }
   if (record && record.status === 'rejected') {
     showRejectedView(student, record);
     return;
@@ -892,7 +954,13 @@ async function initEnrollmentPage(student) {
   if (access && access.canEnroll === false) {
     if (access.currentEnrollmentStatus && isLockedEnrollmentStatus(access.currentEnrollmentStatus)) {
       if (!access.invalidPreviousEnrollment) {
-        await showWaitingView(student, { status: access.currentEnrollmentStatus }, access);
+        const accessRecord = {
+          status: access.currentEnrollmentStatus,
+          semester: access.semesterName,
+          semesterCode: access.semesterCode,
+          subjects: mappedRecord?.subjects || localRecord?.subjects || [],
+        };
+        await showWaitingView(student, accessRecord, access);
         return;
       }
     } else {
@@ -968,6 +1036,7 @@ function renderSubjectTable(student) {
   const tbody = document.getElementById('subjectBody');
   const subjects = getEnrollmentSubjectsList();
   const strandCode = normalizeStrandCode(student);
+  const gradeLevel = normalizeGradeLevel(student);
   updateOfferingCount(student);
 
   if (!subjects.length) {
@@ -989,7 +1058,7 @@ function renderSubjectTable(student) {
   }
 
   tbody.innerHTML = subjects.map((subj, i) => {
-    const scheduleOptions = (subj.schedules || []).map(s => {
+    const scheduleOptions = schedulesVisibleForRow(subj, strandCode, gradeLevel).map(s => {
       const full = ScheduleFormat.isScheduleFull(s);
       const label = ScheduleFormat.formatDropdownOption(s);
       return `<option value="${s.id}" ${full ? 'disabled' : ''}>${label}</option>`;
@@ -1024,12 +1093,27 @@ function onScheduleChange(index) {
   const subjects = getEnrollmentSubjectsList();
   const subj = subjects[index];
   const schedule = (subj?.schedules || []).find(s => String(s.id) === String(schedSel?.value));
-  if (schedSel.value && !ScheduleFormat.isScheduleFull(schedule)) {
-    checkbox.disabled = false;
-  } else {
+
+  if (!schedSel.value || !schedule || ScheduleFormat.isScheduleFull(schedule)) {
+    if (!document.querySelector('.schedule-select')?.value) {
+      lockedEnrollmentSectionSlot = null;
+      updateEnrollmentSectionInfo();
+    }
     checkbox.disabled = true;
     checkbox.checked = false;
+    updateSubjectCount();
+    return;
   }
+
+  const slot = sectionSlotLetterFromSchedule(schedule, normalizeStrandCode(getStudent()), normalizeGradeLevel(getStudent()));
+  if (!slot) return;
+  lockedEnrollmentSectionSlot = slot;
+  renderSubjectTable(getStudent());
+  syncEnrollmentSchedulesToSection(slot, null);
+  const againSel = document.querySelector(`.schedule-select[data-index="${index}"]`);
+  const againCb = document.querySelector(`.subject-check[data-index="${index}"]`);
+  if (againSel) againSel.value = schedule.id;
+  if (againCb) againCb.disabled = false;
   updateSubjectCount();
 }
 
