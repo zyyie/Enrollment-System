@@ -421,6 +421,7 @@ def build_forgot_password_email(
     new_password: str,
     school_name: str,
 ) -> str:
+    brand = email_brand_name(school_name)
     name = _esc(first_name or "Student")
     sid = _esc(student_id)
     password = _esc(new_password)
@@ -428,7 +429,7 @@ def build_forgot_password_email(
 
     body = f"""
       <p style="margin-top:0;">Dear <strong>{name}</strong>,</p>
-      <p>We received a request to reset your student portal password for {_esc(school_name)}.</p>
+      <p>We received a request to reset your student portal password for {_esc(brand)}.</p>
       {_info_table([
           ("Student ID", f"<strong>{sid}</strong>"),
           ("New Password", f"<strong>{password}</strong>"),
@@ -439,7 +440,7 @@ def build_forgot_password_email(
       )}
       <p style="margin:0;">If you did not request this reset, contact the Registrar's Office immediately.</p>
     """
-    return _email_shell(school_name, "Password Reset", body, email_ref=email_ref)
+    return _email_shell(brand, "Password Reset", body, email_ref=email_ref)
 
 
 def build_registration_form_delivery_email(
@@ -448,6 +449,7 @@ def build_registration_form_delivery_email(
     school_name: str,
 ) -> str:
     """Email body when Registration Certificate is sent after payment approval."""
+    brand = email_brand_name(school_name)
     first_name = _esc(result.get("firstName") or form_data.get("firstName") or "Student")
     student_id = _esc(result.get("studentId") or form_data.get("studentId"))
     app_number = _esc(result.get("applicationNumber") or form_data.get("applicationNumber"))
@@ -467,7 +469,7 @@ def build_registration_form_delivery_email(
       ])}
       <p style="margin:0;">Your official <strong>Registration Certificate (PDF)</strong> is attached. Open and save it as proof of enrollment for this term.</p>
     """
-    return _email_shell(school_name, "Registration Certificate", body, email_ref=email_ref)
+    return _email_shell(brand, "Registration Certificate", body, email_ref=email_ref)
 
 
 def build_admission_rejection_email(result: dict, reason: str | None, school_name: str) -> str:

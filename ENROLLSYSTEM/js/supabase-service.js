@@ -53,20 +53,82 @@ const SupabaseService = (() => {
     }
   }
 
-  async function loginStudent(studentId, birthMonth, birthDay, birthYear, password) {
-    const { data, error } = await callRpc('authenticate_student', {
-      p_student_id: studentId,
-      p_birth_month: parseInt(birthMonth, 10),
-      p_birth_day: parseInt(birthDay, 10),
-      p_birth_year: parseInt(birthYear, 10),
-      p_password: password
-    });
+  async function loginStudent(studentId, password, birthMonth, birthDay, birthYear) {
+    // Birthdate is optional (login UI no longer requires it). Prefer server /api/auth/student.
+    const pwd = String(password || '').trim();
+    const sid = String(studentId || '').trim().toUpperCase();
+    if (!sid || !pwd) return null;
 
-    if (error || !data) return null;
-    if (data.error === 'ACCOUNT_FROZEN' || data.error === 'ACCOUNT_INACTIVE') {
-      return { error: data.error, message: data.message };
+    const hasBirth = birthMonth && birthDay && birthYear;
+    if (hasBirth) {
+      const { data, error } = await callRpc('authenticate_student', {
+        p_student_id: sid,
+        p_birth_month: parseInt(birthMonth, 10),
+        p_birth_day: parseInt(birthDay, 10),
+        p_birth_year: parseInt(birthYear, 10),
+        p_password: pwd
+      });
+      if (!error && data) {
+        if (data.error === 'ACCOUNT_FROZEN' || data.error === 'ACCOUNT_INACTIVE') {
+          return { error: data.error, message: data.message };
+        }
+        if (data.id) return data;
+      }
     }
-    return data;
+
+    // Password-only REST fallback (same as server auth path).
+    try {
+      const client = getClient();
+      if (!client) return null;
+      const { data: students, error: sErr } = await client
+        .from('students')
+        .select('*, strands(code,name), sections(name)')
+        .eq('student_id', sid)
+        .limit(5);
+      if (!sErr && Array.isArray(students)) {
+        for (const row of students) {
+          if (String(row.password || '').trim() !== pwd) continue;
+          if (row.is_active === false) continue;
+          const status = String(row.account_status || 'active').toLowerCase();
+          if (status === 'frozen') {
+            return {
+              error: 'ACCOUNT_FROZEN',
+              message: 'Your account has been frozen. Please contact the registrar\'s office.'
+            };
+          }
+          if (status === 'inactive') {
+            return {
+              error: 'ACCOUNT_INACTIVE',
+              message: 'Your account is inactive. Please contact the registrar\'s office.'
+            };
+          }
+          const birth = String(row.birthdate || '2000-01-01').slice(0, 10).split('-');
+          const strands = row.strands || {};
+          const sections = row.sections || {};
+          return {
+            id: row.student_id,
+            supabaseId: row.id,
+            lastName: row.last_name || '',
+            firstName: row.first_name || '',
+            middleName: row.middle_name || '',
+            birthMonth: String(parseInt(birth[1], 10) || 1),
+            birthDay: String(parseInt(birth[2], 10) || 1),
+            birthYear: String(parseInt(birth[0], 10) || 2000),
+            gradeLevel: row.grade_level || 'Grade 11',
+            strand: strands.code || 'STEM',
+            strandFull: strands.name || strands.code || 'STEM',
+            section: sections.name || '',
+            track: row.track || 'Academic',
+            admissionStatus: row.admission_status || 'approved',
+            accountStatus: row.account_status || 'active',
+            password: pwd
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('Supabase password-only student login failed:', err);
+    }
+    return null;
   }
 
   async function loginFaculty(facultyId, password) {

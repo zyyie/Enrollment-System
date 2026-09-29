@@ -416,7 +416,11 @@ function showDraftRestoredBanner(step) {
 async function initEnrollPage() {
  const params = new URLSearchParams(window.location.search);
  const wantsFresh = params.get('new') === '1';
- rememberAdmissionEntryTypeFromUrl();
+ const entryType = rememberAdmissionEntryTypeFromUrl() || readStoredAdmissionEntryType();
+ if (entryType === 'returnee') {
+  window.location.replace('enroll-old-student.html');
+  return;
+ }
 
  try {
  window.localStorage?.removeItem(DRAFT_STORAGE_KEY);

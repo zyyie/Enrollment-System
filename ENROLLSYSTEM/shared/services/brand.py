@@ -20,11 +20,13 @@ def display_school_name(text: str | None) -> str:
 
 
 def email_brand_name(text: str | None = None) -> str:
-    _ = text
+    """Outbound email always uses EMS — never legacy Geranova / SHS names."""
+    _ = text  # callers may pass SCHOOL_NAME; email branding is fixed
     return DEFAULT_SCHOOL_NAME
 
 
 def scrub_legacy_brand_text(text: str) -> str:
+    """Remove Geranova / SHS from plain-text email subjects or snippets."""
     if not text:
         return text
     out = str(text)

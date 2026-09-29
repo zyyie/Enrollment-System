@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Settings - Enrollment Management System</title>
-  <link rel="stylesheet" href="../css/styles.css?v=22">
+  <link rel="stylesheet" href="../css/styles.css?v=38">
 </head>
 <body class="student-layout">
   <div id="studentSidebarWrap"></div>
@@ -59,13 +59,29 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" id="passwordSettingsCard">
         <div class="card-header">Security</div>
         <div class="card-body">
-          <div class="settings-note">
-            <strong>Password and login changes</strong> are handled by the Registrar Office for student accounts.
-            Visit the registrar or contact the school admin if you need to reset your password or update your login details.
+          <div class="settings-password-banner" id="passwordRequiredBanner" hidden>
+            Your temporary password must be changed before you can use the rest of the portal.
           </div>
+          <p class="settings-help" style="margin-top:0;">Replace the password from your approval email. Use at least 8 characters, with a letter and a number.</p>
+          <form id="changePasswordForm" class="settings-password-form" autocomplete="off">
+            <div class="form-group">
+              <label for="currentPassword">Current password</label>
+              <input type="password" id="currentPassword" class="form-control" autocomplete="current-password" required>
+            </div>
+            <div class="form-group">
+              <label for="newPassword">New password</label>
+              <input type="password" id="newPassword" class="form-control" autocomplete="new-password" minlength="8" required>
+            </div>
+            <div class="form-group">
+              <label for="confirmPassword">Confirm new password</label>
+              <input type="password" id="confirmPassword" class="form-control" autocomplete="new-password" minlength="8" required>
+            </div>
+            <p class="settings-password-msg" id="passwordChangeMsg" role="status"></p>
+            <button type="submit" class="btn-primary" id="changePasswordBtn">Change Password</button>
+          </form>
         </div>
       </div>
 
@@ -105,8 +121,9 @@
   <script src="/js/supabase-client.js"></script>
   <script src="/js/supabase-service.js?v=6"></script>
   <script src="../js/data.js?v=9"></script>
-  <script src="../js/icons.js?v=2"></script>
-  <script src="../js/app.js?v=15"></script>
+  <script src="../js/icons.js?v=3"></script>
+  <script src="../js/password-field.js?v=4"></script>
+  <script src="../js/app.js?v=25"></script>
   <script>
     const student = initPage('settings');
 
@@ -158,6 +175,79 @@
 
     if (prefs.compactSidebar) {
       document.body.classList.add('sidebar-collapsed');
+    }
+
+    const passwordBanner = document.getElementById('passwordRequiredBanner');
+    const passwordForm = document.getElementById('changePasswordForm');
+    const passwordMsg = document.getElementById('passwordChangeMsg');
+    const passwordBtn = document.getElementById('changePasswordBtn');
+    if (student && student.mustChangePassword && passwordBanner) {
+      passwordBanner.hidden = false;
+    }
+
+    function showPasswordMsg(text, ok) {
+      if (!passwordMsg) return;
+      passwordMsg.textContent = text;
+      passwordMsg.classList.toggle('is-ok', !!ok);
+      passwordMsg.classList.toggle('is-error', !ok);
+    }
+
+    if (passwordForm) {
+      passwordForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const currentPassword = document.getElementById('currentPassword').value.trim();
+        const newPassword = document.getElementById('newPassword').value.trim();
+        const confirmPassword = document.getElementById('confirmPassword').value.trim();
+        if (!currentPassword || !newPassword || !confirmPassword) {
+          showPasswordMsg('Fill in all password fields.', false);
+          return;
+        }
+        if (newPassword.length < 8 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
+          showPasswordMsg('New password must be at least 8 characters and include a letter and a number.', false);
+          return;
+        }
+        if (newPassword !== confirmPassword) {
+          showPasswordMsg('New password and confirmation do not match.', false);
+          return;
+        }
+        if (newPassword === currentPassword) {
+          showPasswordMsg('Choose a password different from your current password.', false);
+          return;
+        }
+        if (passwordBtn) {
+          passwordBtn.disabled = true;
+          passwordBtn.textContent = 'Saving...';
+        }
+        try {
+          const res = await fetch('/api/student/change-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              studentId: student.id,
+              currentPassword,
+              newPassword,
+              confirmPassword,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.success) {
+            showPasswordMsg(data.error || 'Could not change password.', false);
+            return;
+          }
+          student.mustChangePassword = false;
+          if (typeof setStudent === 'function') setStudent(student);
+          passwordForm.reset();
+          if (passwordBanner) passwordBanner.hidden = true;
+          showPasswordMsg('Password updated. You can now use the rest of the portal.', true);
+        } catch (err) {
+          showPasswordMsg('Could not change password. Please try again.', false);
+        } finally {
+          if (passwordBtn) {
+            passwordBtn.disabled = false;
+            passwordBtn.textContent = 'Change Password';
+          }
+        }
+      });
     }
   </script>
 </body>

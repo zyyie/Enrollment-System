@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Curriculum - Enrollment System</title>
+  <link rel="stylesheet" href="../css/styles.css?v=38">
+</head>
+<body class="student-layout">
+  <div id="studentSidebarWrap"></div>
+  <div class="student-main">
+    <div id="studentHeader"></div>
+    <main class="main-content">
+      <p class="curriculum-lead" id="curriculumLead">Subjects for your strand, and the prerequisites you must pass before taking the next subject.</p>
+      <div class="curriculum-toolbar" id="curriculumStrands" role="tablist" aria-label="Strand"></div>
+      <div id="curriculumBody"></div>
+    </main>
+  </div>
+  <div id="accessibility"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/supabase-client.js"></script>
+  <script src="/js/supabase-service.js?v=6"></script>
+  <script src="../js/enrollment-curriculum.js?v=1"></script>
+  <script src="../js/curriculum-prerequisites.js?v=1"></script>
+  <script src="../js/icons.js?v=3"></script>
+  <script src="../js/app.js?v=25"></script>
+  <script>
+    const student = initPage('curriculum');
+    const TERMS = [
+      { grade: 'Grade 11', sem: '1st', label: 'Grade 11 · First Semester' },
+      { grade: 'Grade 11', sem: '2nd', label: 'Grade 11 · Second Semester' },
+      { grade: 'Grade 12', sem: '1st', label: 'Grade 12 · First Semester' },
+      { grade: 'Grade 12', sem: '2nd', label: 'Grade 12 · Second Semester' },
+    ];
+
+    function esc(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function catalogIndex() {
+      const byCode = {};
+      TERMS.forEach((term) => {
+        const block = (ENROLLMENT_CURRICULUM[term.grade] || {})[term.sem] || {};
+        ['core', 'applied'].forEach((kind) => {
+          (block[kind] || []).forEach((subject) => {
+            byCode[subject.code] = { ...subject, kind, grade: term.grade, sem: term.sem };
+          });
+        });
+        Object.values(block.specialized || {}).forEach((list) => {
+          (list || []).forEach((subject) => {
+            byCode[subject.code] = { ...subject, kind: 'specialized', grade: term.grade, sem: term.sem };
+          });
+        });
+      });
+      return byCode;
+    }
+
+    const SUBJECTS = catalogIndex();
+
+    function subjectsFor(strand, grade, sem) {
+      const block = (ENROLLMENT_CURRICULUM[grade] || {})[sem] || {};
+      const rows = [];
+      (block.core || []).forEach((subject) => rows.push({ ...subject, kind: 'Core' }));
+      (block.applied || []).forEach((subject) => rows.push({ ...subject, kind: 'Applied' }));
+      ((block.specialized || {})[strand] || []).forEach((subject) => rows.push({ ...subject, kind: 'Specialized' }));
+      return rows;
+    }
+
+    function passedMap(terms) {
+      const map = {};
+      (terms || []).forEach((term) => {
+        (term.subjects || []).forEach((subject) => {
+          const code = subject.code || subject.subjectCode;
+          if (!code) return;
+          const grade = Number(subject.finalGrade);
+          const status = String(subject.status || '').toLowerCase();
+          const passed = status.includes('pass')
+            || (Number.isFinite(grade) && grade >= 75)
+            || (Number.isFinite(grade) && grade >= 1 && grade <= 3);
+          map[code] = {
+            passed,
+            grade: subject.finalGrade,
+            term: [term.schoolYear, term.semester].filter(Boolean).join(' '),
+          };
+        });
+      });
+      return map;
+    }
+
+    function prereqText(code, taken) {
+      const codes = (typeof CURRICULUM_PREREQUISITES !== 'undefined' && CURRICULUM_PREREQUISITES[code]) || [];
+      if (!codes.length) {
+        return { html: '<strong>Pre-requisite:</strong> None', blocked: false };
+      }
+      const missing = [];
+      const labels = codes.map((req) => {
+        const subject = SUBJECTS[req];
+        const name = subject ? subject.description : req;
+        const done = taken[req] && taken[req].passed;
+        if (!done) missing.push(name);
+        return done ? name : name;
+      });
+      const blocked = missing.length > 0 && Object.keys(taken).length > 0;
+      const note = blocked ? ` Complete ${missing.join(', ')} before taking this subject.` : '';
+      return {
+        html: `<strong>Pre-requisite:</strong> ${esc(labels.join(', '))}${esc(note)}`,
+        blocked,
+      };
+    }
+
+    let activeStrand = (student.strand || 'STEM').toUpperCase();
+    if (!ENROLLMENT_STRANDS.includes(activeStrand)) activeStrand = 'STEM';
+    let taken = {};
+
+    function render() {
+      const lead = document.getElementById('curriculumLead');
+      const mine = (student.strand || '').toUpperCase();
+      lead.textContent = activeStrand === mine
+        ? `Subjects for your strand (${activeStrand}). Pass the listed prerequisite before taking the next subject.`
+        : `Subjects for ${activeStrand}. Pass the listed prerequisite before taking the next subject.`;
+
+      document.getElementById('curriculumStrands').innerHTML = ENROLLMENT_STRANDS.map((code) => `
+        <button type="button" class="curriculum-strand-btn ${code === activeStrand ? 'is-active' : ''}" data-strand="${esc(code)}" role="tab" aria-selected="${code === activeStrand}">
+          ${esc(code)}${code === mine ? ' · Yours' : ''}
+        </button>
+      `).join('');
+
+      document.getElementById('curriculumBody').innerHTML = TERMS.map((term) => {
+        const rows = subjectsFor(activeStrand, term.grade, term.sem);
+        const units = rows.reduce((sum, row) => sum + Number(row.units || 0), 0);
+        const cards = rows.map((row) => {
+          const record = taken[row.code];
+          const prereq = prereqText(row.code, taken);
+          const mark = record && record.passed ? '<span class="is-passed" aria-hidden="true">✓</span>' : '<span aria-hidden="true">•</span>';
+          const progress = record
+            ? `Grade: ${esc(record.grade ?? '—')}${record.term ? ` · Term taken: ${esc(record.term)}` : ''}`
+            : 'Not yet taken';
+          return `
+            <article class="curriculum-subject">
+              <div class="curriculum-subject-title">${mark}<span>${esc(row.description)}<span class="curriculum-type">${esc(row.kind)}</span></span></div>
+              <p class="curriculum-subject-meta">Units: ${esc(row.units)} · ${progress}</p>
+              <p class="curriculum-prereq ${prereq.blocked ? 'is-blocked' : ''}">${prereq.html}</p>
+            </article>`;
+        }).join('');
+        return `
+          <section class="curriculum-term">
+            <div class="curriculum-term-head">
+              <span>${esc(term.label)}</span>
+              <span class="curriculum-term-count">${rows.length} subjects · ${units} units</span>
+            </div>
+            ${cards || '<article class="curriculum-subject"><p class="curriculum-subject-meta">No subjects for this term.</p></article>'}
+          </section>`;
+      }).join('');
+
+      document.querySelectorAll('.curriculum-strand-btn').forEach((button) => {
+        button.addEventListener('click', () => {
+          activeStrand = button.dataset.strand;
+          render();
+        });
+      });
+    }
+
+    render();
+
+    if (typeof SupabaseService !== 'undefined' && student.id) {
+      SupabaseService.getStudentGrades(student.id).then((result) => {
+        taken = passedMap(result && result.terms);
+        render();
+      }).catch(() => {});
+    }
+  </script>
+</body>
+</html>

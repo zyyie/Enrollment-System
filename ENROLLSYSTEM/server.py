@@ -45,7 +45,12 @@ from shared.services.storage import (
     upload_enrollment_photo,
 )
 from shared.validation.admission import validate_admission_fields, validate_admission_files
-from shared.services.brand import DEFAULT_SCHOOL_NAME, display_school_name, scrub_legacy_brand_text
+from shared.services.brand import (
+    DEFAULT_SCHOOL_NAME,
+    display_school_name,
+    email_brand_name,
+    scrub_legacy_brand_text,
+)
 
 PORT = 8000
 ROOT = Path(__file__).parent
@@ -56,9 +61,17 @@ LOCAL_FEEDBACK_FILE = ROOT / "data" / "student-feedback.json"
 
 def load_env():
     env = {}
-    env_path = ROOT / ".env"
-    if not env_path.exists():
-        return env
+    candidates = [ROOT / ".env"]
+    desktop = Path.home() / "OneDrive" / "Desktop"
+    for admin_root in (
+        desktop / "Enrollment-System-Admin" / "ENROLLSYSTEM-ADMIN",
+        desktop / "Enrollment systemproject" / "ENROLLSYSTEM-ADMIN",
+        ROOT.parent / "ENROLLSYSTEM-ADMIN",
+    ):
+        candidates.append(admin_root / ".env")
+    env_path = next((p for p in candidates if p.exists()), None)
+    if not env_path:
+        return env, None
 
     raw = env_path.read_text(encoding="utf-8-sig")
     for line in raw.splitlines():
@@ -70,14 +83,14 @@ def load_env():
         if " #" in value:
             value = value.split(" #", 1)[0].strip()
         env[key.strip()] = value
-    return env
+    return env, env_path
 
 
 def normalize_gmail_password(password):
     return re.sub(r"\s+", "", password or "")
 
 
-ENV = load_env()
+ENV, ENV_SOURCE = load_env()
 SUPABASE_URL = ENV.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_PUBLISHABLE_KEY = ENV.get("SUPABASE_PUBLISHABLE_KEY", "")
 SUPABASE_SECRET_KEY = ENV.get("SUPABASE_SECRET_KEY", "")
@@ -724,18 +737,22 @@ def local_student_login(student_id, birth_month, birth_day, birth_year, password
         sid = (app.get("student_id_generated") or "").strip().upper()
         if sid != student_id:
             continue
-        stored_password = (app.get("temp_password") or app.get("tempPassword") or "").strip()
+        temp_password = (app.get("temp_password") or app.get("tempPassword") or "").strip()
+        portal_password = (app.get("portal_password") or app.get("portalPassword") or "").strip()
+        stored_password = portal_password or temp_password
         if stored_password != password:
             continue
         birthdate = str(app.get("birthdate") or "")[:10]
-        if birthdate:
+        if birthdate and (birth_month or birth_day or birth_year):
             try:
                 y, m, d = [int(part) for part in birthdate.split("-")]
                 if int(birth_year) != y or int(birth_month) != m or int(birth_day) != d:
                     continue
             except (TypeError, ValueError):
                 continue
-        return build_student_session_from_admission(app)
+        session = build_student_session_from_admission(app)
+        session["mustChangePassword"] = (not portal_password) or portal_password == temp_password
+        return session
     return None
 
 
@@ -831,9 +848,12 @@ def sync_approved_student_credentials(result, app_detail=None):
 
 
 def birthdate_matches(stored, birth_month, birth_day, birth_year):
-    if not stored:
-        return False
+    """Match birthdate when provided; skip check when month/day/year are all 0/empty."""
     try:
+        if not birth_month and not birth_day and not birth_year:
+            return True
+        if not stored:
+            return False
         parts = str(stored)[:10].split("-")
         if len(parts) != 3:
             return False
@@ -845,6 +865,61 @@ def birthdate_matches(stored, birth_month, birth_day, birth_year):
         )
     except (TypeError, ValueError):
         return False
+
+
+# Student login lockout: 3 failed attempts → 30 second cooldown (per IP + Student ID).
+_STUDENT_LOGIN_LOCKOUTS = {}
+_STUDENT_LOGIN_MAX_FAILS = 3
+_STUDENT_LOGIN_LOCK_SEC = 30
+
+
+def _student_login_client_key(handler, student_id: str) -> str:
+    forwarded = (handler.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+    ip = forwarded or (handler.client_address[0] if handler.client_address else "unknown")
+    return f"{ip}|{(student_id or '').strip().upper()}"
+
+
+def _student_login_lock_status(key: str) -> tuple:
+    """Returns (locked, seconds_remaining, fail_count)."""
+    now = time.time()
+    entry = _STUDENT_LOGIN_LOCKOUTS.get(key) or {}
+    locked_until = float(entry.get("locked_until") or 0)
+    fails = int(entry.get("fails") or 0)
+    if locked_until > now:
+        return True, int(max(1, round(locked_until - now))), fails
+    if locked_until and locked_until <= now:
+        _STUDENT_LOGIN_LOCKOUTS[key] = {"fails": 0, "locked_until": 0}
+        return False, 0, 0
+    return False, 0, fails
+
+
+def _record_student_login_failure(key: str) -> dict:
+    now = time.time()
+    entry = _STUDENT_LOGIN_LOCKOUTS.get(key) or {"fails": 0, "locked_until": 0}
+    if float(entry.get("locked_until") or 0) > now:
+        remaining = int(max(1, round(float(entry["locked_until"]) - now)))
+        return {
+            "locked": True,
+            "failedAttempts": int(entry.get("fails") or 0),
+            "retryAfterSec": remaining,
+            "lockUntil": int(float(entry["locked_until"]) * 1000),
+        }
+    fails = int(entry.get("fails") or 0) + 1
+    locked_until = 0.0
+    if fails >= _STUDENT_LOGIN_MAX_FAILS:
+        locked_until = now + _STUDENT_LOGIN_LOCK_SEC
+        fails = _STUDENT_LOGIN_MAX_FAILS
+    _STUDENT_LOGIN_LOCKOUTS[key] = {"fails": fails, "locked_until": locked_until}
+    return {
+        "locked": locked_until > 0,
+        "failedAttempts": fails,
+        "retryAfterSec": int(_STUDENT_LOGIN_LOCK_SEC) if locked_until else 0,
+        "lockUntil": int(locked_until * 1000) if locked_until else None,
+    }
+
+
+def _clear_student_login_lockout(key: str) -> None:
+    _STUDENT_LOGIN_LOCKOUTS.pop(key, None)
 
 
 def _fetch_current_term_rest():
@@ -941,7 +1016,9 @@ def supabase_student_auth_fallback(student_id, birth_month, birth_day, birth_yea
         for row in students:
             stored_password = (row.get("password") or "").strip()
             if stored_password != password:
-                if birthdate_matches(row.get("birthdate"), birth_month, birth_day, birth_year):
+                # Recover only when the student row has no password yet.
+                # A custom password must not be overwritten by the emailed temporary password.
+                if not stored_password:
                     stale_student_row = row
                 continue
             if not birthdate_matches(row.get("birthdate"), birth_month, birth_day, birth_year):
@@ -1045,78 +1122,237 @@ def handle_student_login(handler):
     except (TypeError, ValueError):
         birth_month = birth_day = birth_year = 0
 
-    if not student_id or not password or not birth_month or not birth_day or not birth_year:
+    if not student_id or not password:
         json_response(handler, 400, {
             "success": False,
-            "error": "Student ID, birthdate, and password are required.",
+            "error": "Student ID and password are required.",
+        })
+        return
+
+    lock_key = _student_login_client_key(handler, student_id)
+    locked, remaining, _fails = _student_login_lock_status(lock_key)
+    if locked:
+        json_response(handler, 429, {
+            "success": False,
+            "error": f"Too many failed attempts. Try again in {remaining}s.",
+            "code": "LOGIN_LOCKED",
+            "retryAfterSec": remaining,
+            "lockUntil": int((time.time() + remaining) * 1000),
+            "failedAttempts": _STUDENT_LOGIN_MAX_FAILS,
         })
         return
 
     student = None
 
     if supabase_configured():
-        result, error = supabase_rpc("authenticate_student", {
-            "p_student_id": student_id,
-            "p_birth_month": birth_month,
-            "p_birth_day": birth_day,
-            "p_birth_year": birth_year,
-            "p_password": password,
-        }, timeout=10)
-        if error:
-            print(f"[Supabase auth error] {parse_supabase_error(error)}")
-        elif isinstance(result, dict) and result.get("error") == "ACCOUNT_FROZEN":
+        # Prefer password-only REST auth (birthdate no longer required on login).
+        student = supabase_student_auth_fallback(
+            student_id, birth_month, birth_day, birth_year, password,
+        )
+        if isinstance(student, dict) and student.get("error") == "ACCOUNT_FROZEN":
             json_response(handler, 403, {
                 "success": False,
-                "error": result.get("message") or "Account frozen.",
+                "error": student.get("message") or "Account frozen.",
                 "code": "ACCOUNT_FROZEN",
             })
             return
-        elif isinstance(result, dict) and result.get("error") == "ACCOUNT_INACTIVE":
+        if isinstance(student, dict) and student.get("error") == "ACCOUNT_INACTIVE":
             json_response(handler, 403, {
                 "success": False,
-                "error": result.get("message") or "Account inactive.",
+                "error": student.get("message") or "Account inactive.",
                 "code": "ACCOUNT_INACTIVE",
             })
             return
-        elif isinstance(result, dict) and result.get("id"):
-            student = result
-
-        if not student:
-            student = supabase_student_auth_fallback(
-                student_id, birth_month, birth_day, birth_year, password,
-            )
-            if isinstance(student, dict) and student.get("error") == "ACCOUNT_FROZEN":
+        if not student and (birth_month and birth_day and birth_year):
+            result, error = supabase_rpc("authenticate_student", {
+                "p_student_id": student_id,
+                "p_birth_month": birth_month,
+                "p_birth_day": birth_day,
+                "p_birth_year": birth_year,
+                "p_password": password,
+            }, timeout=10)
+            if error:
+                print(f"[Supabase auth error] {parse_supabase_error(error)}")
+            elif isinstance(result, dict) and result.get("error") == "ACCOUNT_FROZEN":
                 json_response(handler, 403, {
                     "success": False,
-                    "error": student.get("message") or "Account frozen.",
+                    "error": result.get("message") or "Account frozen.",
                     "code": "ACCOUNT_FROZEN",
                 })
                 return
-            if isinstance(student, dict) and student.get("error") == "ACCOUNT_INACTIVE":
+            elif isinstance(result, dict) and result.get("error") == "ACCOUNT_INACTIVE":
                 json_response(handler, 403, {
                     "success": False,
-                    "error": student.get("message") or "Account inactive.",
+                    "error": result.get("message") or "Account inactive.",
                     "code": "ACCOUNT_INACTIVE",
                 })
                 return
+            elif isinstance(result, dict) and result.get("id"):
+                student = result
 
     if not student and not supabase_configured():
         student = local_student_login(student_id, birth_month, birth_day, birth_year, password)
 
-    if student:
+    if student and not (isinstance(student, dict) and student.get("error")):
+        _clear_student_login_lockout(lock_key)
+        mark_must_change_password(student, password)
         attach_student_profile_photo(student)
         json_response(handler, 200, {"success": True, "student": student})
         return
 
+    lock_info = _record_student_login_failure(lock_key)
+    if lock_info.get("locked"):
+        json_response(handler, 429, {
+            "success": False,
+            "error": f"Too many failed attempts. Try again in {lock_info['retryAfterSec']}s.",
+            "code": "LOGIN_LOCKED",
+            "retryAfterSec": lock_info["retryAfterSec"],
+            "lockUntil": lock_info.get("lockUntil"),
+            "failedAttempts": lock_info.get("failedAttempts"),
+        })
+        return
+
     json_response(handler, 401, {
         "success": False,
-        "error": "Invalid Student ID, birthdate, or password.",
+        "error": "Invalid Student ID or password.",
+        "failedAttempts": lock_info.get("failedAttempts"),
         "hint": (
             "Use the exact Student ID and Temporary Password from your approval email. "
-            "Birthdate must match your enrollment form. "
             "If you still cannot sign in, contact the registrar office."
         ) if supabase_configured() else None,
     })
+
+
+def lookup_student_temp_passwords(student_id):
+    student_id = (student_id or "").strip().upper()
+    temps = []
+    if not student_id:
+        return temps
+    if supabase_configured():
+        rows, _err = supabase_rest_get(
+            "admission_applications",
+            f"student_id_generated=eq.{quote(student_id)}&select=temp_password&limit=5",
+            use_secret=True,
+            timeout=8,
+        )
+        if isinstance(rows, list):
+            for row in rows:
+                temp = (row.get("temp_password") or "").strip()
+                if temp:
+                    temps.append(temp)
+        return temps
+    for app in load_local_admissions():
+        sid = (app.get("student_id_generated") or "").strip().upper()
+        if sid != student_id:
+            continue
+        temp = (app.get("temp_password") or app.get("tempPassword") or "").strip()
+        if temp:
+            temps.append(temp)
+    return temps
+
+
+def mark_must_change_password(student, password):
+    if not isinstance(student, dict) or not student.get("id"):
+        return student
+    pwd = (password or "").strip()
+    temps = lookup_student_temp_passwords(student.get("id"))
+    if temps:
+        student["mustChangePassword"] = any(pwd == temp for temp in temps)
+    elif "mustChangePassword" not in student:
+        student["mustChangePassword"] = False
+    return student
+
+
+def validate_new_student_password(current_password, new_password, confirm_password):
+    current_password = (current_password or "").strip()
+    new_password = (new_password or "").strip()
+    confirm_password = (confirm_password or "").strip()
+    if len(new_password) < 8:
+        return "New password must be at least 8 characters."
+    if not re.search(r"[A-Za-z]", new_password) or not re.search(r"\d", new_password):
+        return "New password must include at least one letter and one number."
+    if new_password == current_password:
+        return "Choose a password different from your current password."
+    if new_password != confirm_password:
+        return "New password and confirmation do not match."
+    return None
+
+
+def handle_student_change_password(handler):
+    try:
+        body = read_json_body(handler)
+    except json.JSONDecodeError:
+        json_response(handler, 400, {"success": False, "error": "Invalid request body."})
+        return
+
+    student_id = (body.get("studentId") or "").strip().upper()
+    current_password = (body.get("currentPassword") or "").strip()
+    new_password = (body.get("newPassword") or "").strip()
+    confirm_password = (body.get("confirmPassword") or "").strip()
+
+    if not student_id or not current_password or not new_password:
+        json_response(handler, 400, {
+            "success": False,
+            "error": "Student ID, current password, and new password are required.",
+        })
+        return
+
+    error = validate_new_student_password(current_password, new_password, confirm_password)
+    if error:
+        json_response(handler, 400, {"success": False, "error": error})
+        return
+
+    if supabase_configured():
+        rows, err = supabase_rest_get(
+            "students",
+            f"student_id=eq.{quote(student_id)}&select=id,password,account_status,is_active&limit=1",
+            use_secret=True,
+            timeout=10,
+        )
+        if err or not isinstance(rows, list) or not rows:
+            json_response(handler, 401, {"success": False, "error": "Current password is incorrect."})
+            return
+        row = rows[0]
+        if (row.get("password") or "").strip() != current_password:
+            json_response(handler, 401, {"success": False, "error": "Current password is incorrect."})
+            return
+        if row.get("is_active") is False:
+            json_response(handler, 403, {"success": False, "error": "Account inactive."})
+            return
+        _, patch_err = supabase_rest_patch(
+            "students",
+            f"student_id=eq.{quote(student_id)}",
+            {"password": new_password, "updated_at": datetime.now().isoformat()},
+        )
+        if patch_err:
+            json_response(handler, 500, {
+                "success": False,
+                "error": "Could not update password. Please try again.",
+            })
+            return
+        json_response(handler, 200, {"success": True})
+        return
+
+    records = load_local_admissions()
+    updated = False
+    for record in records:
+        sid = (record.get("student_id_generated") or "").strip().upper()
+        if sid != student_id:
+            continue
+        temp_password = (record.get("temp_password") or record.get("tempPassword") or "").strip()
+        portal_password = (record.get("portal_password") or record.get("portalPassword") or "").strip()
+        stored = portal_password or temp_password
+        if stored != current_password:
+            continue
+        record["portal_password"] = new_password
+        record["portalPassword"] = new_password
+        updated = True
+        break
+    if not updated:
+        json_response(handler, 401, {"success": False, "error": "Current password is incorrect."})
+        return
+    save_local_admissions(records)
+    json_response(handler, 200, {"success": True})
 
 
 FORGOT_PASSWORD_SUCCESS_MSG = (
@@ -2116,11 +2352,7 @@ def dispatch_submission_emails(app_data, doc_paths, gcash_proof_path, app_number
 
 
 def admission_file_roots():
-    roots = [ROOT]
-    sibling = ROOT.parent / ("ENROLLSYSTEM" if ROOT.name == "ENROLLSYSTEM-ADMIN" else "ENROLLSYSTEM-ADMIN")
-    if sibling.is_dir():
-        roots.append(sibling)
-    return roots
+    return [ROOT]
 
 
 def document_view_url(path):
@@ -2251,6 +2483,11 @@ def handle_admission_file(handler):
     handler.wfile.write(content)
 
 
+def _email_school_name():
+    fresh = load_env()[0].get("SCHOOL_NAME")
+    return email_brand_name(fresh or SCHOOL_NAME)
+
+
 def send_email(to_addr, subject, html_body, attachments=None):
     to_addr = (to_addr or "").strip()
     if not to_addr:
@@ -2297,7 +2534,7 @@ def send_email(to_addr, subject, html_body, attachments=None):
     msg["From"] = formataddr((DEFAULT_SCHOOL_NAME, GMAIL_USER))
     msg["To"] = to_addr
     msg["Subject"] = scrub_legacy_brand_text(subject)
-    print(f"[Email] From display name: {DEFAULT_SCHOOL_NAME!r} | To: {to_addr}")
+    print(f"[Email] From display name: {DEFAULT_SCHOOL_NAME!r} | To: {to_addr} | {msg['Subject'][:80]}")
     domain = GMAIL_USER.split("@", 1)[-1] if "@" in GMAIL_USER else "localhost"
     message_id = f"{uuid.uuid4().hex}@{domain}"
     msg["Message-ID"] = f"<{message_id}>"
@@ -2470,7 +2707,7 @@ def build_admin_submission_email(app_data, doc_paths):
 
     return f"""
     <div style="font-family:Arial,sans-serif;max-width:640px;">
-      <h2 style="color:#1a3a6b;">New Admission Application — {SCHOOL_NAME}</h2>
+      <h2 style="color:#1a3a6b;">New Admission Application — {_email_school_name()}</h2>
       <p><strong>Application No:</strong> {app_data.get('applicationNumber')}</p>
       <p><strong>Name:</strong> {app_data.get('lastName')}, {app_data.get('firstName')} {app_data.get('middleName', '')}</p>
       <p><strong>Email:</strong> {app_data.get('email')}</p>
@@ -2545,9 +2782,10 @@ def send_admission_credentials_email(result, app_detail=None):
         "applicationNumber": merged.get("applicationNumber") or merged.get("application_number"),
     }
     app_number = form_data.get("applicationNumber") or "Application"
-    subject = f"Enrollment Approved — {app_number} — {SCHOOL_NAME}"
+    brand = _email_school_name()
+    subject = f"Enrollment Approved — {app_number} — {brand}"
     try:
-        html_body = build_admission_approval_email(result, form_data, SCHOOL_NAME)
+        html_body = build_admission_approval_email(result, form_data, brand)
     except Exception as err:
         print(f"[Email approval] Template error: {err}")
         return False, f"Could not build approval email: {err}"
@@ -3110,7 +3348,7 @@ def is_canonical_section(section_name: str, strand_code: str, grade_level: str) 
 
 
 def filter_offerings_canonical_sections(offerings: list) -> list:
-    """Keep only Wisdom/Compassion (etc.) section schedules — drop legacy ICT 11-A rows."""
+    """Keep only canonical virtue section schedules — drop legacy ICT 11-A rows."""
     filtered: list = []
     for subject in offerings or []:
         if not isinstance(subject, dict):
@@ -3332,6 +3570,10 @@ def handle_admission_offerings(handler):
         json_response(handler, 503, {
             "success": False,
             "error": "Database is not configured. Set SUPABASE_URL and keys in .env.",
+            "hint": (
+                "Copy .env from your main PC into ENROLLSYSTEM/.env (see .env.example), "
+                "then run python server.py on this laptop — do not open enroll.html as a file."
+            ),
         })
         return
 
@@ -3588,6 +3830,9 @@ def adjust_student_grades_payload(student_id: str, payload: dict) -> dict:
                     "semesterCode": matched_sem,
                     "semester": "First Semester" if matched_sem == "1st" else "Second Semester",
                 })
+                continue
+            # One extra subject outside the catalog must not hide the whole term.
+            current_term = term
             continue
 
         past_terms.append(term)
@@ -3632,7 +3877,11 @@ def adjust_enrollment_access_for_invalid_record(student_id: str, access: dict) -
         return access
     strand, grade, _ = fetch_student_strand_code(student_id)
     sem_code = str(access.get("semesterCode") or "1st")
-    if enrollment_matches_current_term(strand, grade, sem_code, enrollment.get("subjects") or []):
+    subjects = enrollment.get("subjects") or []
+    if enrollment_matches_current_term(strand, grade, sem_code, subjects):
+        return access
+    matched_sem = _find_matching_semester(strand, grade, subjects)
+    if not matched_sem or matched_sem == sem_code:
         return access
     sem_name = access.get("semesterName") or ("2nd Semester" if sem_code == "2nd" else "1st Semester")
     return {
@@ -3714,6 +3963,29 @@ def _lifecycle_stage_matches(stage_key: str, grade_level: str, semester_code: st
     return False
 
 
+def _payment_status_via_student_rpc(student_uuid: str, enrollment_id: str) -> str | None:
+    """enrollment_payments is not readable by the API key; the payment RPC is."""
+    rows, err = supabase_rest_get(
+        "students",
+        f"id=eq.{quote(str(student_uuid))}&select=student_id&limit=1",
+        use_secret=True,
+        timeout=10,
+    )
+    if err or not rows or not rows[0].get("student_id"):
+        return None
+    result, rpc_err = supabase_rpc(
+        "get_student_payment_status",
+        {"p_student_id": rows[0]["student_id"]},
+        timeout=15,
+    )
+    if rpc_err or not isinstance(result, dict):
+        return None
+    for payment in result.get("payments") or []:
+        if str(payment.get("enrollmentId") or "") == str(enrollment_id):
+            return payment.get("status") or None
+    return None
+
+
 def _fetch_stage_enrollment_rest(student_uuid: str, grade_level: str, semester_code: str) -> dict | None:
     enroll_rows, err = supabase_rest_get(
         "enrollments",
@@ -3770,13 +4042,18 @@ def _fetch_stage_enrollment_rest(student_uuid: str, grade_level: str, semester_c
                 graded += 1
             if grade_status == "failed":
                 failed += 1
-        pay_rows, _ = supabase_rest_get(
+        pay_rows, pay_err = supabase_rest_get(
             "enrollment_payments",
             f"enrollment_id=eq.{quote(str(enrollment_id))}&select=status",
             use_secret=True,
             timeout=10,
         )
-        payment_status = (pay_rows[0].get("status") if pay_rows else None) or "unpaid"
+        if pay_rows:
+            payment_status = pay_rows[0].get("status") or "unpaid"
+        elif pay_err:
+            payment_status = _payment_status_via_student_rpc(student_uuid, enrollment_id) or "unpaid"
+        else:
+            payment_status = "unpaid"
         candidates.append({
             "enrollment_id": enrollment_id,
             "enrollment_status": row.get("status"),
@@ -3803,7 +4080,8 @@ def _is_stage_complete_rest(student_uuid: str, grade_level: str, semester_code: 
         return False
     total = int(row.get("total_subjects") or 0)
     graded = int(row.get("graded_subjects") or 0)
-    return total > 0 and graded >= total
+    failed = int(row.get("failed_subjects") or 0)
+    return total > 0 and graded >= total and failed == 0
 
 
 def _student_has_g11_history_rest(student_uuid: str) -> bool:
@@ -3934,6 +4212,15 @@ def get_lifecycle_state_rest(student_id: str) -> dict:
     }
 
 
+def _current_enrollment_payment_status(student_uuid, grade_level, semester_code, current_status):
+    if current_status != "enrolled":
+        return None
+    stage = _fetch_stage_enrollment_rest(student_uuid, grade_level, semester_code)
+    if not stage:
+        return None
+    return stage.get("payment_status")
+
+
 def fetch_enrollment_access_rest(student_id: str) -> dict:
     lifecycle = get_lifecycle_state_rest(student_id)
     rows, err = supabase_rest_get(
@@ -4052,6 +4339,16 @@ def fetch_enrollment_access_rest(student_id: str) -> dict:
                 "You have unresolved failing grades in Grade 11. "
                 "Grade 12 enrollment is not available until requirements are fulfilled. Please contact the registrar."
             )
+        elif (
+            str(next_stage).startswith("g12_")
+            and progression not in ("eligible_g12", "graduated")
+            and grade_level != "Grade 12"
+            and not _is_stage_complete_rest(student_uuid, "Grade 11", "2nd")
+        ):
+            reason = (
+                f"Complete Grade 11 — 2nd Semester and become eligible for Grade 12 "
+                f"before enrolling in {lifecycle.get('nextStageLabel')}."
+            )
         elif target_grade and target_grade != stage_grade and not (
             progression == "eligible_g12" and str(next_stage).startswith("g12_")
         ):
@@ -4077,36 +4374,20 @@ def fetch_enrollment_access_rest(student_id: str) -> dict:
         "nextStageLabel": lifecycle.get("nextStageLabel"),
         "completedStages": lifecycle.get("completedStages") or [],
         "isLifecycleCompleted": is_completed,
+        "paymentStatus": _current_enrollment_payment_status(student_uuid, grade_level, semester_code, current_status),
     }
 
 
 def enrich_enrollment_access_with_lifecycle(student_id: str, access: dict) -> dict:
+    """Reconcile RPC access with REST lifecycle so Enrollment Period + eligibility stay aligned."""
     if not isinstance(access, dict):
-        return access or {}
-    if access.get("lifecycleStage") and access.get("nextStageLabel"):
-        return access
-    lifecycle = get_lifecycle_state_rest(student_id)
-    if not lifecycle.get("found"):
-        return access
-    merged = {**access, **{
-        "lifecycleStage": lifecycle.get("lifecycleStage"),
-        "nextStage": lifecycle.get("nextStage"),
-        "nextStageLabel": lifecycle.get("nextStageLabel"),
-        "completedStages": lifecycle.get("completedStages") or [],
-        "isLifecycleCompleted": bool(lifecycle.get("isCompleted")),
-    }}
-    if lifecycle.get("isCompleted"):
-        merged["canEnroll"] = False
-        merged["reason"] = (
-            "You have completed the supported enrollment lifecycle (Grade 12 — 2nd Semester). "
-            "No further enrollment is available."
-        )
-        return merged
-    if not access.get("canEnroll") and lifecycle.get("blockedReason"):
-        merged["reason"] = lifecycle.get("blockedReason")
-    elif access.get("canEnroll") and lifecycle.get("blockedReason"):
-        merged["canEnroll"] = False
-        merged["reason"] = lifecycle.get("blockedReason")
+        access = {}
+    rest = fetch_enrollment_access_rest(student_id)
+    # REST enforces current-term window + stage eligibility (authoritative for canEnroll).
+    merged = {**access, **rest}
+    if rest.get("blockedReason") or rest.get("reason"):
+        merged["reason"] = rest.get("reason") or access.get("reason")
+    merged["canEnroll"] = bool(rest.get("canEnroll"))
     return merged
 
 
@@ -4266,16 +4547,8 @@ def handle_enrollment_submit(handler):
             return
 
     if supabase_configured():
-        access, access_err = supabase_rpc(
-            "get_student_enrollment_access",
-            {"p_student_id": student_id},
-            timeout=10,
-        )
-        if access_err or not isinstance(access, dict):
-            access = fetch_enrollment_access_rest(student_id)
-        else:
-            access = adjust_enrollment_access_for_invalid_record(student_id, access)
-            access = enrich_enrollment_access_with_lifecycle(student_id, access)
+        access = fetch_enrollment_access_rest(student_id)
+        access = adjust_enrollment_access_for_invalid_record(student_id, access)
         if not access.get("canEnroll"):
             json_response(handler, 400, {
                 "success": False,
@@ -4367,19 +4640,309 @@ def handle_enrollment_access(handler):
         json_response(handler, 400, {"success": False, "error": "studentId required"})
         return
     if supabase_configured():
-        result, error = supabase_rpc("get_student_enrollment_access", {
-            "p_student_id": student_id,
-        }, timeout=10)
-        if error:
-            data = fetch_enrollment_access_rest(student_id)
-            data = adjust_enrollment_access_for_invalid_record(student_id, data)
-            json_response(handler, 200, {"success": True, "data": data})
-            return
-        data = adjust_enrollment_access_for_invalid_record(student_id, result or {})
-        data = enrich_enrollment_access_with_lifecycle(student_id, data)
+        # Authoritative path: Enrollment Period (open term) + lifecycle eligibility.
+        data = fetch_enrollment_access_rest(student_id)
+        data = adjust_enrollment_access_for_invalid_record(student_id, data)
         json_response(handler, 200, {"success": True, "data": data})
         return
     json_response(handler, 200, {"success": True, "data": {"canEnroll": True, "enrollmentOpen": True}})
+
+
+def _load_old_student_row(student_id: str):
+    sid = quote((student_id or "").strip().upper())
+    rows, error = supabase_rest_get(
+        "students",
+        (
+            f"student_id=eq.{sid}"
+            "&select=id,student_id,last_name,first_name,middle_name,birthdate,gender,"
+            "address,contact_number,grade_level,track,admission_type,admission_status,"
+            "scholastic_status,account_status,progression_status,grade11_completed,"
+            "voucher_qualified,strands(code,name),sections(name)"
+            "&limit=1"
+        ),
+        use_secret=True,
+        timeout=12,
+    )
+    if error or not rows:
+        return None, error
+    return rows[0], None
+
+
+def _load_old_student_email(student_id: str) -> str:
+    sid = quote((student_id or "").strip().upper())
+    apps, _ = supabase_rest_get(
+        "admission_applications",
+        (
+            f"student_id_generated=eq.{sid}"
+            "&select=email&order=reviewed_at.desc.nullslast,created_at.desc&limit=1"
+        ),
+        use_secret=True,
+        timeout=10,
+    )
+    if apps and isinstance(apps, list):
+        return (apps[0].get("email") or "").strip()
+    return ""
+
+
+def handle_old_student_verify(handler):
+    """Verify existing Student ID + birthdate for Old Student Grade 12 enrollment."""
+    try:
+        body = read_json_body(handler)
+    except json.JSONDecodeError:
+        json_response(handler, 400, {"success": False, "error": "Invalid request body."})
+        return
+
+    student_id = (body.get("studentId") or "").strip().upper()
+    try:
+        birth_month = int(body.get("birthMonth") or 0)
+        birth_day = int(body.get("birthDay") or 0)
+        birth_year = int(body.get("birthYear") or 0)
+    except (TypeError, ValueError):
+        birth_month = birth_day = birth_year = 0
+
+    if not student_id or not birth_month or not birth_day or not birth_year:
+        json_response(handler, 400, {
+            "success": False,
+            "error": "Student ID and birthdate are required to verify your existing school record.",
+        })
+        return
+
+    if not supabase_configured():
+        json_response(handler, 503, {
+            "success": False,
+            "error": "Database is not configured. Set SUPABASE_URL and keys in .env.",
+        })
+        return
+
+    row, error = _load_old_student_row(student_id)
+    if error:
+        json_response(handler, 500, {
+            "success": False,
+            "error": friendly_user_error(parse_supabase_error(error)),
+        })
+        return
+    if not row:
+        json_response(handler, 404, {
+            "success": False,
+            "error": "No existing student record found for that Student ID. Old Student enrollment is only for previously enrolled students of this school.",
+        })
+        return
+
+    if not birthdate_matches(row.get("birthdate"), birth_month, birth_day, birth_year):
+        json_response(handler, 401, {
+            "success": False,
+            "error": "Student ID and birthdate do not match our records.",
+        })
+        return
+
+    account_status = (row.get("account_status") or "active").strip().lower()
+    if account_status == "frozen":
+        json_response(handler, 403, {
+            "success": False,
+            "error": "Your account has been frozen. Please contact the registrar's office.",
+            "code": "ACCOUNT_FROZEN",
+        })
+        return
+    if account_status == "inactive":
+        json_response(handler, 403, {
+            "success": False,
+            "error": "Your account is inactive. Please contact the registrar's office.",
+            "code": "ACCOUNT_INACTIVE",
+        })
+        return
+
+    access = fetch_enrollment_access_rest(student_id)
+    access = adjust_enrollment_access_for_invalid_record(student_id, access)
+    next_stage = str(access.get("nextStage") or "")
+    is_g12_stage = next_stage in ("g12_1st", "g12_2nd")
+
+    if access.get("isLifecycleCompleted") or access.get("progressionStatus") == "graduated":
+        json_response(handler, 403, {
+            "success": False,
+            "error": access.get("reason") or (
+                "You have completed Grade 12 — 2nd Semester. No further SHS enrollment is available."
+            ),
+            "access": access,
+        })
+        return
+
+    if not is_g12_stage:
+        json_response(handler, 403, {
+            "success": False,
+            "error": access.get("reason") or (
+                f"Your next required stage is {access.get('nextStageLabel') or 'not Grade 12'}. "
+                "Complete the previous semester before Grade 12 enrollment."
+            ),
+            "access": access,
+        })
+        return
+
+    if not access.get("canEnroll"):
+        json_response(handler, 403, {
+            "success": False,
+            "error": access.get("reason") or (
+                "You are eligible for Grade 12 progression, but enrollment is not open for your next stage yet. "
+                "Wait for the registrar to open the Enrollment Period."
+            ),
+            "access": access,
+            "eligibleButClosed": True,
+        })
+        return
+
+    student = build_student_session_from_supabase_row(row)
+    student["email"] = _load_old_student_email(student_id)
+    student["gender"] = row.get("gender") or ""
+    student["address"] = row.get("address") or ""
+    student["contactNumber"] = row.get("contact_number") or ""
+    student["admissionType"] = "returnee"
+    student["oldStudentReturnee"] = True
+    student["enrollmentStage"] = next_stage
+    student["enrollmentStageLabel"] = access.get("nextStageLabel") or "Grade 12"
+    # System-determined grade/semester (not student-chosen)
+    if next_stage == "g12_2nd":
+        student["gradeLevel"] = "Grade 12"
+        student["semesterCode"] = "2nd"
+        student["semester"] = "Second Semester"
+    else:
+        student["gradeLevel"] = "Grade 12"
+        student["semesterCode"] = "1st"
+        student["semester"] = "First Semester"
+    attach_student_profile_photo(student)
+
+    json_response(handler, 200, {
+        "success": True,
+        "student": student,
+        "access": access,
+        "profile": {
+            "studentId": student["id"],
+            "lastName": student["lastName"],
+            "firstName": student["firstName"],
+            "middleName": student["middleName"],
+            "birthdate": str(row.get("birthdate") or "")[:10],
+            "gender": student.get("gender") or "",
+            "address": student.get("address") or "",
+            "contactNumber": student.get("contactNumber") or "",
+            "email": student.get("email") or "",
+            "gradeLevel": student["gradeLevel"],
+            "semesterCode": student["semesterCode"],
+            "semester": student["semester"],
+            "strand": student.get("strand") or "",
+            "strandFull": student.get("strandFull") or "",
+            "section": student.get("section") or "",
+            "track": student.get("track") or "Academic",
+            "enrollmentStage": next_stage,
+            "enrollmentStageLabel": student["enrollmentStageLabel"],
+        },
+    })
+
+
+def handle_old_student_update_profile(handler):
+    """Update editable fields on the SAME existing student record (Old Student G12 flow)."""
+    try:
+        body = read_json_body(handler)
+    except json.JSONDecodeError:
+        json_response(handler, 400, {"success": False, "error": "Invalid request body."})
+        return
+
+    student_id = (body.get("studentId") or "").strip().upper()
+    try:
+        birth_month = int(body.get("birthMonth") or 0)
+        birth_day = int(body.get("birthDay") or 0)
+        birth_year = int(body.get("birthYear") or 0)
+    except (TypeError, ValueError):
+        birth_month = birth_day = birth_year = 0
+
+    if not student_id or not birth_month or not birth_day or not birth_year:
+        json_response(handler, 400, {"success": False, "error": "Student ID and birthdate are required."})
+        return
+
+    if not supabase_configured():
+        json_response(handler, 503, {"success": False, "error": "Database is not configured."})
+        return
+
+    row, error = _load_old_student_row(student_id)
+    if error or not row:
+        json_response(handler, 404, {"success": False, "error": "Existing student record not found."})
+        return
+    if not birthdate_matches(row.get("birthdate"), birth_month, birth_day, birth_year):
+        json_response(handler, 401, {"success": False, "error": "Student ID and birthdate do not match."})
+        return
+
+    access = fetch_enrollment_access_rest(student_id)
+    access = adjust_enrollment_access_for_invalid_record(student_id, access)
+    if str(access.get("nextStage") or "") not in ("g12_1st", "g12_2nd") or not access.get("canEnroll"):
+        json_response(handler, 403, {
+            "success": False,
+            "error": access.get("reason") or "You are not eligible to update and enroll for Grade 12 right now.",
+        })
+        return
+
+    payload = {}
+    for src, col in (
+        ("lastName", "last_name"),
+        ("firstName", "first_name"),
+        ("middleName", "middle_name"),
+        ("gender", "gender"),
+        ("address", "address"),
+        ("contactNumber", "contact_number"),
+    ):
+        if src in body and body.get(src) is not None:
+            payload[col] = str(body.get(src) or "").strip()
+
+    if not payload.get("last_name") or not payload.get("first_name"):
+        json_response(handler, 400, {"success": False, "error": "First name and last name are required."})
+        return
+
+    payload["updated_at"] = datetime.utcnow().isoformat() + "Z"
+    # Keep identity + academic progression fields — never invent a new student id/grade here.
+    _, patch_err = supabase_rest_patch(
+        "students",
+        f"id=eq.{row['id']}",
+        payload,
+    )
+    if patch_err:
+        json_response(handler, 500, {
+            "success": False,
+            "error": friendly_user_error(parse_supabase_error(patch_err)),
+        })
+        return
+
+    email = (body.get("email") or "").strip().lower()
+    if email and is_valid_email(email):
+        apps, _ = supabase_rest_get(
+            "admission_applications",
+            f"student_id_generated=eq.{quote(student_id)}&select=id&order=created_at.desc&limit=1",
+            use_secret=True,
+            timeout=8,
+        )
+        if apps:
+            supabase_rest_patch(
+                "admission_applications",
+                f"id=eq.{apps[0]['id']}",
+                {"email": email},
+            )
+
+    refreshed, _ = _load_old_student_row(student_id)
+    student = build_student_session_from_supabase_row(refreshed or row)
+    student["email"] = email or _load_old_student_email(student_id)
+    student["gender"] = (refreshed or row).get("gender") or ""
+    student["address"] = (refreshed or row).get("address") or ""
+    student["contactNumber"] = (refreshed or row).get("contact_number") or ""
+    student["admissionType"] = "returnee"
+    student["oldStudentReturnee"] = True
+    student["enrollmentStage"] = access.get("nextStage")
+    student["enrollmentStageLabel"] = access.get("nextStageLabel")
+    if access.get("nextStage") == "g12_2nd":
+        student["gradeLevel"] = "Grade 12"
+        student["semesterCode"] = "2nd"
+        student["semester"] = "Second Semester"
+    else:
+        student["gradeLevel"] = "Grade 12"
+        student["semesterCode"] = "1st"
+        student["semester"] = "First Semester"
+    attach_student_profile_photo(student)
+
+    json_response(handler, 200, {"success": True, "student": student})
 
 
 def handle_student_grades(handler):
@@ -4643,6 +5206,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             handle_student_forgot_password(self)
             return
 
+        if path == "/api/student/change-password":
+            handle_student_change_password(self)
+            return
+
+        if path == "/api/enrollment/old-student/verify":
+            handle_old_student_verify(self)
+            return
+
+        if path == "/api/enrollment/old-student/update-profile":
+            handle_old_student_update_profile(self)
+            return
+
         if path == "/api/enrollment/submit":
             handle_enrollment_submit(self)
             return
@@ -4693,12 +5268,16 @@ def main():
         print(f"  Admin inbox:       {mask_email(ADMIN_EMAIL)}")
 
     print("=" * 50)
-    print("  Geranova EMS — STUDENT PORTAL ONLY")
+    print("  EMS — STUDENT PORTAL ONLY")
     print("=" * 50)
     print(f"\n  Server running at: {url}")
     print(f"  Login page:        {url}/login.html")
     print(f"  Enroll Now:        {url}/enroll.html")
     print(f"\n  Supabase:          {supabase_status}")
+    if ENV_SOURCE:
+        print(f"  Env file:          {ENV_SOURCE}")
+    elif not supabase_configured():
+        print("  Env file:          missing — copy ENROLLSYSTEM/.env from your main laptop")
     print(f"  Gmail:             {gmail_status}")
     print(f"  Applicant email:   {APPLICANT_EMAIL_VERSION} (full enrollment summary)")
     print(f"  GCash Payment:     QR Code mode")

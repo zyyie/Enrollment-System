@@ -537,7 +537,8 @@ async function showWaitingView(student, record, access) {
   const nextSem = (access && access.nextSemesterLabel) || getNextSemesterLabel(semCode);
   const status = (record && record.status) || (access && access.currentEnrollmentStatus) || 'enrolled';
   const isPending = status === 'pending';
-  const isApproved = status === 'approved' || status === 'enrolled';
+  const paymentApproved = String(access?.paymentStatus || '').toLowerCase() === 'approved';
+  const isApproved = (status === 'approved' || status === 'enrolled') && !paymentApproved;
 
   const titleEl = document.getElementById('enrollmentWaitingTitle');
   const msgEl = document.getElementById('enrollmentWaitingMessage');
@@ -932,10 +933,23 @@ async function initEnrollmentPage(student) {
   updateStrandStatusBar(student);
   hideWaitingView();
 
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('oldStudent') === '1' || student.oldStudentReturnee) {
+    const info = document.getElementById('studentInfo');
+    if (info) {
+      const stage = student.enrollmentStageLabel || access?.nextStageLabel || 'Grade 12';
+      info.innerHTML = `
+        <strong>Old Student · ${stage}</strong> — Student ID <code>${student.id}</code>.
+        Your Grade 11 enrollment history is preserved. Submitting creates a <em>new</em> enrollment for this term only.
+        <a href="../enroll-old-student.html">Edit personal information</a>
+      `;
+    }
+  }
+
   if (access && (access.isLifecycleCompleted || access.lifecycleStage === 'completed' || access.progressionStatus === 'graduated')) {
     showCompletedView(student, access);
-    return;
-  }
+      return;
+    }
 
   if (isValidLockedEnrollment(student, mappedRecord)) {
     await showWaitingView(student, mappedRecord, access);

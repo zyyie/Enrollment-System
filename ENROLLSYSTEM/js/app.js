@@ -10,16 +10,26 @@ function setStudent(student) {
  sessionStorage.setItem('shsStudent', JSON.stringify(student));
 }
 
-function logout() {
+function logout(reason) {
  sessionStorage.removeItem('shsStudent');
  sessionStorage.removeItem('loginRole');
- window.location.href = '../login.html';
+ sessionStorage.removeItem('shsStudentLastActivity');
+ const idle = reason === 'idle';
+ window.location.href = '../login.html' + (idle ? '?idle=1' : '');
 }
 
 function requireAuth() {
- if (!getStudent()) {
+ const student = getStudent();
+ if (!student) {
  window.location.href = '../login.html';
  return false;
+ }
+ if (student.mustChangePassword) {
+ const page = (window.location.pathname || '').split('/').pop();
+ if (page !== 'settings.html') {
+ window.location.href = 'settings.html';
+ return false;
+ }
  }
  return true;
 }
@@ -68,6 +78,7 @@ function renderStudentHomeQuickLinks() {
  { href: 'accounts.html', icon: 'accounts', label: 'Payment', desc: 'Tuition and payment records' },
  { href: 'schedule.html', icon: 'schedule', label: 'Schedule', desc: 'Your weekly class timetable' },
  { href: 'grades.html', icon: 'grades', label: 'Grades', desc: 'View academic performance' },
+ { href: 'curriculum.html', icon: 'curriculum', label: 'Curriculum', desc: 'Subjects per strand and prerequisites' },
  { href: 'forms.html', icon: 'forms', label: 'Forms', desc: 'Download official documents' },
  ];
 
@@ -98,6 +109,7 @@ function renderStudentSidebar(activePage) {
  { id: 'accounts', label: 'Payment', href: 'accounts.html', icon: 'accounts' },
  { id: 'schedule', label: 'Schedule', href: 'schedule.html', icon: 'schedule' },
  { id: 'grades', label: 'Grades', href: 'grades.html', icon: 'grades' },
+ { id: 'curriculum', label: 'Curriculum', href: 'curriculum.html', icon: 'curriculum' },
  { id: 'forms', label: 'Forms', href: 'forms.html', icon: 'forms' }
  ];
 
@@ -187,6 +199,7 @@ const STUDENT_MODULE_TITLES = {
  accounts: 'Payment',
  schedule: 'Schedule',
  grades: 'Grades',
+ curriculum: 'Curriculum',
  forms: 'Forms',
  settings: 'Settings',
 };
@@ -340,20 +353,25 @@ function normalizeStudentAccount(student) {
  progressionStatus: student.progressionStatus || student.progression_status || 'in_progress',
  grade11Completed: student.grade11Completed ?? student.grade11_completed ?? false,
  voucherQualified: student.voucherQualified || student.voucher_qualified || false,
- profilePhotoUrl: student.profilePhotoUrl || student.profile_photo_url || ''
+ profilePhotoUrl: student.profilePhotoUrl || student.profile_photo_url || '',
+ email: student.email || '',
+ gender: student.gender || '',
+ address: student.address || '',
+ contactNumber: student.contactNumber || student.contact_number || '',
+ oldStudentReturnee: !!(student.oldStudentReturnee),
+ enrollmentStage: student.enrollmentStage || '',
+ enrollmentStageLabel: student.enrollmentStageLabel || '',
+ mustChangePassword: !!student.mustChangePassword,
  };
 }
 
-async function loginStudentRemote(userId, birthMonth, birthDay, birthYear, password) {
+async function loginStudentRemote(userId, password) {
  try {
  const res = await fetch('/api/auth/student', {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({
  studentId: userId,
- birthMonth,
- birthDay,
- birthYear,
  password: password.trim()
  })
  });
@@ -364,11 +382,14 @@ async function loginStudentRemote(userId, birthMonth, birthDay, birthYear, passw
  }
  const result = JSON.parse(text);
  if (result.success && result.student) {
+ loginStudentRemote.lastLockUntil = null;
  return normalizeStudentAccount(result.student);
  }
  if (!result.success && result.error) {
  loginStudentRemote.lastError = result.error + (result.hint ? ` ${result.hint}` : '');
  loginStudentRemote.lastCode = result.code || null;
+ loginStudentRemote.lastLockUntil = result.lockUntil || null;
+ loginStudentRemote.lastFails = result.failedAttempts || null;
  }
  } catch (err) {
  console.warn('Server student login unavailable:', err);
@@ -389,32 +410,30 @@ function initStudentLoginPage() {
 
 function initLoginPage() {
  const errorEl = document.getElementById('loginError');
- const birthdateInput = document.getElementById('birthdate');
 
  if (errorEl) {
  errorEl.style.display = 'none';
  errorEl.textContent = '';
  }
 
- if (birthdateInput) {
- const field = birthdateInput.closest('.date-field');
- if (field) {
- bindDateField(field, { min: '1960-01-01', max: `${new Date().getFullYear()}-12-31` });
- }
- }
-
  document.getElementById('loginTitle').textContent = 'Enrollment Management System';
  document.getElementById('loginSubtitle').textContent = 'Log in to your account';
  document.getElementById('idLabel').textContent = 'Student ID';
  document.getElementById('studentId').placeholder = '2026-00145-SHS-0';
- document.getElementById('birthdateGroup').style.display = 'block';
- if (birthdateInput) birthdateInput.setAttribute('required', '');
+ const birthdateGroup = document.getElementById('birthdateGroup');
+ if (birthdateGroup) birthdateGroup.style.display = 'none';
  sessionStorage.setItem('loginRole', 'student');
  initForgotPasswordModal();
  initEnrollmentEntryTypeCard();
  initStudentAuthSlider();
+ refreshLoginLockoutUI();
 
  const params = new URLSearchParams(window.location.search);
+ if (params.get('idle') === '1' && errorEl && params.get('submitted') !== '1') {
+ errorEl.style.display = 'block';
+ errorEl.textContent = 'You were signed out after 15 minutes of inactivity. Please log in again.';
+ window.history.replaceState({}, '', 'login.html');
+ }
  if (params.get('submitted') === '1' && errorEl) {
  const appNo = params.get('app');
  errorEl.style.display = 'block';
@@ -437,6 +456,9 @@ function normalizeEnrollmentEntryType(value) {
 
 function buildEnrollStartUrl(type) {
  const normalized = normalizeEnrollmentEntryType(type);
+ if (normalized === 'returnee') {
+  return 'enroll-old-student.html';
+ }
  return `enroll.html?new=1&type=${encodeURIComponent(normalized)}`;
 }
 
@@ -480,6 +502,7 @@ function initEnrollmentEntryTypeCard() {
 
  const radios = card.querySelectorAll('input[name="enrollmentEntryType"]');
  const startBtn = document.getElementById('btnStartEnrollment');
+ const noteEl = card.querySelector('.login-enroll-note');
  if (!radios.length) return;
 
  let saved = 'new';
@@ -502,7 +525,21 @@ function initEnrollmentEntryTypeCard() {
  /* ignore */
  }
  const url = buildEnrollStartUrl(type);
- if (startBtn) startBtn.href = url;
+ if (startBtn) {
+  startBtn.href = url;
+  startBtn.textContent = type === 'returnee'
+   ? 'Continue — verify Student ID'
+   : 'Continue to enrollment';
+ }
+ if (noteEl) {
+  if (type === 'returnee') {
+   noteEl.textContent = 'Old Student: verify your existing Student ID. Your Grade 11 records stay intact; Grade 12 enrollment uses your saved information.';
+  } else if (type === 'transferee') {
+   noteEl.textContent = 'Select your applicant type. Your choice will carry through to Academic Information.';
+  } else {
+   noteEl.textContent = 'Select your applicant type. Your choice will carry through to Academic Information.';
+  }
+ }
  }
 
  radios.forEach((radio) => radio.addEventListener('change', syncEnrollmentLinks));
@@ -837,7 +874,161 @@ function initPage(activePage) {
  initStudentHome(student);
  refreshStudentProfilePhoto(student);
  }
+ startStudentIdleLogout();
  return student;
+}
+
+const IDLE_LIMIT_MS = 15 * 60 * 1000;
+const IDLE_WARN_MS = 60 * 1000;
+let _idleWarnEl = null;
+
+function ensureIdleWarning() {
+ if (_idleWarnEl) return _idleWarnEl;
+ _idleWarnEl = document.createElement('div');
+ _idleWarnEl.id = 'idleLogoutWarning';
+ _idleWarnEl.className = 'idle-logout-warning';
+ _idleWarnEl.hidden = true;
+ document.body.appendChild(_idleWarnEl);
+ return _idleWarnEl;
+}
+
+function startStudentIdleLogout() {
+ if (window.__studentIdleStarted) return;
+ window.__studentIdleStarted = true;
+ const key = 'shsStudentLastActivity';
+ const touch = () => {
+ sessionStorage.setItem(key, String(Date.now()));
+ const el = ensureIdleWarning();
+ el.hidden = true;
+ };
+ touch();
+ let lastMove = 0;
+ document.addEventListener('mousemove', () => {
+ const now = Date.now();
+ if (now - lastMove < 15000) return;
+ lastMove = now;
+ touch();
+ }, { passive: true });
+ ['click', 'keydown', 'touchstart', 'scroll'].forEach((eventName) => {
+ document.addEventListener(eventName, touch, { passive: true });
+ });
+ document.addEventListener('visibilitychange', () => {
+ if (document.visibilityState !== 'visible' || !getStudent()) return;
+ const last = Number(sessionStorage.getItem(key) || Date.now());
+ if (Date.now() - last >= IDLE_LIMIT_MS) logout('idle');
+ });
+ setInterval(() => {
+ if (!getStudent()) return;
+ const last = Number(sessionStorage.getItem(key) || Date.now());
+ const idleFor = Date.now() - last;
+ if (idleFor >= IDLE_LIMIT_MS) {
+ logout('idle');
+ return;
+ }
+ const el = ensureIdleWarning();
+ const left = IDLE_LIMIT_MS - idleFor;
+ if (left <= IDLE_WARN_MS) {
+ el.hidden = false;
+ el.textContent = `You will be signed out in ${Math.max(1, Math.ceil(left / 1000))}s because of inactivity.`;
+ } else {
+ el.hidden = true;
+ }
+ }, 1000);
+}
+
+const LOGIN_LOCK_KEY = 'shsStudentLoginLock';
+const LOGIN_LOCK_SECONDS = 30;
+const LOGIN_MAX_FAILS = 3;
+let _loginLockTimer = null;
+
+function readLoginLockState() {
+ try {
+  return JSON.parse(localStorage.getItem(LOGIN_LOCK_KEY) || 'null') || { fails: 0, lockUntil: 0 };
+ } catch (err) {
+  return { fails: 0, lockUntil: 0 };
+ }
+}
+
+function writeLoginLockState(state) {
+ try {
+  localStorage.setItem(LOGIN_LOCK_KEY, JSON.stringify(state));
+ } catch (err) { /* ignore */ }
+}
+
+function clearLoginLockState() {
+ try {
+  localStorage.removeItem(LOGIN_LOCK_KEY);
+ } catch (err) { /* ignore */ }
+ if (_loginLockTimer) {
+  clearInterval(_loginLockTimer);
+  _loginLockTimer = null;
+ }
+}
+
+function getLoginLockRemainingSec(state) {
+ const until = Number(state?.lockUntil || 0);
+ if (!until) return 0;
+ return Math.max(0, Math.ceil((until - Date.now()) / 1000));
+}
+
+function setLoginFormDisabled(disabled) {
+ const form = document.querySelector('#studentAuthCard form.auth-form');
+ if (!form) return;
+ form.querySelectorAll('input, button[type="submit"]').forEach((el) => {
+  if (el.id === 'forgotPasswordBtn') return;
+  el.disabled = !!disabled;
+ });
+}
+
+function refreshLoginLockoutUI() {
+ const errorEl = document.getElementById('loginError');
+ const state = readLoginLockState();
+ const remaining = getLoginLockRemainingSec(state);
+ if (remaining <= 0) {
+  if (state.lockUntil) {
+   writeLoginLockState({ fails: 0, lockUntil: 0 });
+  }
+  setLoginFormDisabled(false);
+  if (_loginLockTimer) {
+   clearInterval(_loginLockTimer);
+   _loginLockTimer = null;
+  }
+  return 0;
+ }
+ setLoginFormDisabled(true);
+ if (errorEl) {
+  errorEl.style.display = 'block';
+  errorEl.style.background = '';
+  errorEl.style.borderColor = '';
+  errorEl.style.color = '';
+  errorEl.textContent = `Too many failed attempts. Try again in ${remaining}s.`;
+ }
+ if (!_loginLockTimer) {
+  _loginLockTimer = setInterval(() => {
+   const left = refreshLoginLockoutUI();
+   if (left <= 0 && errorEl && /Too many failed attempts/.test(errorEl.textContent || '')) {
+    errorEl.style.display = 'none';
+    errorEl.textContent = '';
+   }
+  }, 1000);
+ }
+ return remaining;
+}
+
+function recordLoginFailureClient(serverLockUntil) {
+ const state = readLoginLockState();
+ if (serverLockUntil) {
+  writeLoginLockState({ fails: LOGIN_MAX_FAILS, lockUntil: Number(serverLockUntil) });
+  refreshLoginLockoutUI();
+  return;
+ }
+ const fails = Number(state.fails || 0) + 1;
+ if (fails >= LOGIN_MAX_FAILS) {
+  writeLoginLockState({ fails, lockUntil: Date.now() + LOGIN_LOCK_SECONDS * 1000 });
+ } else {
+  writeLoginLockState({ fails, lockUntil: 0 });
+ }
+ refreshLoginLockoutUI();
 }
 
 async function handleLogin(e) {
@@ -845,41 +1036,29 @@ async function handleLogin(e) {
 
  const userIdEl = document.getElementById('studentId');
  const passwordEl = document.getElementById('password');
- const birthdateEl = document.getElementById('birthdate');
  const errorEl = document.getElementById('loginError');
- const role = getLoginRole();
  const submitBtn = e.target.querySelector('button[type="submit"]');
 
  if (!userIdEl || !passwordEl || !errorEl) {
  return;
  }
 
- const userId = userIdEl.value.trim().toUpperCase();
- const birthdateValue = birthdateEl ? birthdateEl.value : '';
- const password = passwordEl.value;
- let birthMonth = '';
- let birthDay = '';
- let birthYear = '';
-
- if (birthdateValue) {
- const [year, month, day] = birthdateValue.split('-');
- birthYear = String(parseInt(year, 10));
- birthMonth = String(parseInt(month, 10));
- birthDay = String(parseInt(day, 10));
+ const remaining = refreshLoginLockoutUI();
+ if (remaining > 0) {
+ errorEl.style.display = 'block';
+ errorEl.textContent = `Too many failed attempts. Try again in ${remaining}s.`;
+ return;
  }
+
+ const userId = userIdEl.value.trim().toUpperCase();
+ const password = passwordEl.value;
 
  errorEl.style.display = 'none';
  errorEl.textContent = '';
 
  if (!userId || !password) {
  errorEl.style.display = 'block';
- errorEl.textContent = 'Please enter your ID and password.';
- return;
- }
-
- if (role === 'student' && !birthdateValue) {
- errorEl.style.display = 'block';
- errorEl.textContent = 'Please select your birthdate.';
+ errorEl.textContent = 'Please enter your Student ID and password.';
  return;
  }
 
@@ -889,15 +1068,27 @@ async function handleLogin(e) {
  }
 
  try {
- let student = await loginStudentRemote(userId, birthMonth, birthDay, birthYear, password);
+ loginStudentRemote.lastError = '';
+ loginStudentRemote.lastCode = null;
+ loginStudentRemote.lastLockUntil = null;
+ let student = await loginStudentRemote(userId, password);
+
+ if (!student && loginStudentRemote.lastCode === 'LOGIN_LOCKED') {
+  const until = loginStudentRemote.lastLockUntil;
+  if (until) writeLoginLockState({ fails: LOGIN_MAX_FAILS, lockUntil: Number(until) });
+  refreshLoginLockoutUI();
+  errorEl.style.display = 'block';
+  errorEl.textContent = loginStudentRemote.lastError || `Too many failed attempts. Try again in ${LOGIN_LOCK_SECONDS}s.`;
+  loginStudentRemote.lastError = '';
+  return;
+ }
 
  if (!student && typeof SupabaseService !== 'undefined' && SupabaseService.isEnabled()) {
  try {
- const remote = await SupabaseService.loginStudent(
- userId, birthMonth, birthDay, birthYear, password.trim()
- );
+ const remote = await SupabaseService.loginStudent(userId, password.trim());
  if (remote && remote.error) {
  errorEl.textContent = remote.message || 'Account access denied.';
+ recordLoginFailureClient();
  return;
  }
  student = normalizeStudentAccount(remote);
@@ -910,31 +1101,42 @@ async function handleLogin(e) {
  !student &&
  typeof SAMPLE_STUDENT !== 'undefined' &&
  userId === SAMPLE_STUDENT.id &&
- birthMonth === SAMPLE_STUDENT.birthMonth &&
- birthDay === SAMPLE_STUDENT.birthDay &&
- birthYear === SAMPLE_STUDENT.birthYear &&
  password.trim() === SAMPLE_STUDENT.password
  ) {
  student = normalizeStudentAccount(SAMPLE_STUDENT);
  }
 
  if (student) {
+ clearLoginLockState();
  setStudent(student);
+ if (student.mustChangePassword) {
+ window.location.href = 'student/settings.html';
+ } else {
  window.location.href = 'student/home.html';
+ }
  return;
  }
 
+ recordLoginFailureClient(loginStudentRemote.lastLockUntil);
+ const state = readLoginLockState();
+ const left = getLoginLockRemainingSec(state);
  errorEl.style.display = 'block';
- errorEl.textContent = loginStudentRemote.lastError || 'Invalid Student ID, birthdate, or password.';
+ if (left > 0) {
+  errorEl.textContent = `Too many failed attempts. Try again in ${left}s.`;
+ } else {
+  const fails = Number(state.fails || 0);
+  errorEl.textContent = (loginStudentRemote.lastError || 'Invalid Student ID or password.')
+   + (fails > 0 ? ` (${fails}/${LOGIN_MAX_FAILS} failed attempts)` : '');
+ }
  loginStudentRemote.lastError = '';
  } catch (err) {
  console.error('Login error:', err);
  errorEl.style.display = 'block';
  errorEl.textContent = 'Sign in failed. Please try again.';
  } finally {
- if (submitBtn) {
+ if (submitBtn && getLoginLockRemainingSec(readLoginLockState()) <= 0) {
  submitBtn.disabled = false;
- submitBtn.textContent = 'Sign in';
+ submitBtn.textContent = 'Login';
  }
  }
 }
