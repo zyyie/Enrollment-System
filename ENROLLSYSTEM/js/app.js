@@ -1,18 +1,18 @@
 // Shared application utilities
 
 function getStudent() {
- const data = sessionStorage.getItem('shsStudent');
- return data ? JSON.parse(data) : null;
+  const data = sessionStorage.getItem('shsStudent');
+  return data ? JSON.parse(data) : null;
 }
 
 function setStudent(student) {
- sessionStorage.removeItem('shsFaculty');
- sessionStorage.setItem('shsStudent', JSON.stringify(student));
+  sessionStorage.removeItem('shsFaculty');
+  sessionStorage.setItem('shsStudent', JSON.stringify(student));
 }
 
 function logout(reason) {
- sessionStorage.removeItem('shsStudent');
- sessionStorage.removeItem('loginRole');
+  sessionStorage.removeItem('shsStudent');
+  sessionStorage.removeItem('loginRole');
  sessionStorage.removeItem('shsStudentLastActivity');
  const idle = reason === 'idle';
  window.location.href = '../login.html' + (idle ? '?idle=1' : '');
@@ -21,21 +21,21 @@ function logout(reason) {
 function requireAuth() {
  const student = getStudent();
  if (!student) {
- window.location.href = '../login.html';
- return false;
- }
+    window.location.href = '../login.html';
+    return false;
+  }
  if (student.mustChangePassword) {
  const page = (window.location.pathname || '').split('/').pop();
  if (page !== 'settings.html') {
  window.location.href = 'settings.html';
  return false;
  }
- }
- return true;
+  }
+  return true;
 }
 
 function formatStudentName(student) {
- return `${student.lastName}, ${student.firstName} ${student.middleName} (${student.id})`;
+  return `${student.lastName}, ${student.firstName} ${student.middleName} (${student.id})`;
 }
 
 function getTimeGreeting() {
@@ -99,45 +99,45 @@ function initStudentHome(student) {
 }
 
 function formatCurrency(amount) {
- return amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function renderStudentSidebar(activePage) {
- const pages = [
- { id: 'home', label: 'Home', href: 'home.html', icon: 'home' },
- { id: 'enrollment', label: 'Enrollment', href: 'enrollment.html', icon: 'enrollment' },
+  const pages = [
+    { id: 'home', label: 'Home', href: 'home.html', icon: 'home' },
+    { id: 'enrollment', label: 'Enrollment', href: 'enrollment.html', icon: 'enrollment' },
  { id: 'accounts', label: 'Payment', href: 'accounts.html', icon: 'accounts' },
- { id: 'schedule', label: 'Schedule', href: 'schedule.html', icon: 'schedule' },
- { id: 'grades', label: 'Grades', href: 'grades.html', icon: 'grades' },
+    { id: 'schedule', label: 'Schedule', href: 'schedule.html', icon: 'schedule' },
+    { id: 'grades', label: 'Grades', href: 'grades.html', icon: 'grades' },
  { id: 'curriculum', label: 'Curriculum', href: 'curriculum.html', icon: 'curriculum' },
- { id: 'forms', label: 'Forms', href: 'forms.html', icon: 'forms' }
- ];
+    { id: 'forms', label: 'Forms', href: 'forms.html', icon: 'forms' }
+  ];
 
- const navLinks = pages.map(p => `
- <a href="${p.href}" class="student-nav-link ${p.id === activePage ? 'active' : ''}">
- ${navIcon(p.icon)}
- ${p.label}
- </a>
- `).join('');
+  const navLinks = pages.map(p => `
+    <a href="${p.href}" class="student-nav-link ${p.id === activePage ? 'active' : ''}">
+      ${navIcon(p.icon)}
+      ${p.label}
+    </a>
+  `).join('');
 
- return `
- <aside class="student-sidebar" id="studentSidebar">
- <div class="student-sidebar-brand">
+  return `
+    <aside class="student-sidebar" id="studentSidebar">
+      <div class="student-sidebar-brand">
  <span>Enrollment Management System</span>
- </div>
- <nav class="student-sidebar-nav">
- ${navLinks}
- <a href="settings.html" class="student-nav-link settings-link ${activePage === 'settings' ? 'active' : ''}">
- ${navIcon('settings')}
- Settings
- </a>
- <a href="#" class="student-nav-link logout-link" onclick="logout(); return false;">
- ${navIcon('logout')} Logout
- </a>
- </nav>
- </aside>
- <div class="student-sidebar-overlay" id="studentSidebarOverlay" onclick="toggleStudentSidebar()"></div>
- `;
+      </div>
+      <nav class="student-sidebar-nav">
+        ${navLinks}
+        <a href="settings.html" class="student-nav-link settings-link ${activePage === 'settings' ? 'active' : ''}">
+          ${navIcon('settings')}
+          Settings
+        </a>
+        <a href="#" class="student-nav-link logout-link" onclick="logout(); return false;">
+          ${navIcon('logout')} Logout
+        </a>
+      </nav>
+    </aside>
+    <div class="student-sidebar-overlay" id="studentSidebarOverlay" onclick="toggleStudentSidebar()"></div>
+  `;
 }
 
 function renderStudentAccountAvatar(student) {
@@ -251,65 +251,65 @@ function renderAccountDropdown(student) {
 
 function renderStudentHeader(student, activePage = 'home') {
  if (activePage === 'home') {
- const notifCount = typeof INBOX_MESSAGES !== 'undefined' ? INBOX_MESSAGES.length : 0;
+  const notifCount = typeof INBOX_MESSAGES !== 'undefined' ? INBOX_MESSAGES.length : 0;
  const avatarClass = student?.profilePhotoUrl ? 'header-icon-btn has-profile-photo' : 'header-icon-btn';
 
- return `
- <header class="student-header">
- <button class="header-icon-btn student-menu-toggle" type="button" onclick="toggleStudentSidebar()" aria-label="Toggle menu" title="Menu">
- ${navIcon('menu')}
- </button>
- <div class="student-header-actions">
- <button class="header-icon-btn" type="button" onclick="goToNotifications()" title="Notifications" aria-label="Notifications">
- ${navIcon('bell')}
- ${notifCount ? `<span class="header-badge">${notifCount}</span>` : ''}
- </button>
- <div class="header-account-wrap" onclick="event.stopPropagation()">
+  return `
+    <header class="student-header">
+      <button class="header-icon-btn student-menu-toggle" type="button" onclick="toggleStudentSidebar()" aria-label="Toggle menu" title="Menu">
+        ${navIcon('menu')}
+      </button>
+      <div class="student-header-actions">
+        <button class="header-icon-btn" type="button" onclick="goToNotifications()" title="Notifications" aria-label="Notifications">
+          ${navIcon('bell')}
+          ${notifCount ? `<span class="header-badge">${notifCount}</span>` : ''}
+        </button>
+        <div class="header-account-wrap" onclick="event.stopPropagation()">
  <button class="${avatarClass}" type="button" onclick="toggleAccountMenu(event)" title="Account" aria-label="Account">
  ${renderStudentAccountAvatar(student)}
- </button>
+          </button>
  ${renderAccountDropdown(student)}
- </div>
- </div>
- </header>
- `;
+        </div>
+      </div>
+    </header>
+  `;
  }
 
  const title = STUDENT_MODULE_TITLES[activePage] || activePage;
  return `
  <header class="student-header student-header-module">
  <h1 class="student-header-title">${title}</h1>
- </header>
- `;
+    </header>
+  `;
 }
 
 function goToNotifications() {
- window.location.href = 'home.html';
+  window.location.href = 'home.html';
 }
 
 function toggleAccountMenu(event) {
- event.stopPropagation();
- const dropdown = document.getElementById('accountDropdown');
- if (dropdown) dropdown.classList.toggle('open');
+  event.stopPropagation();
+  const dropdown = document.getElementById('accountDropdown');
+  if (dropdown) dropdown.classList.toggle('open');
 }
 
 function closeAccountMenu() {
- const dropdown = document.getElementById('accountDropdown');
- if (dropdown) dropdown.classList.remove('open');
+  const dropdown = document.getElementById('accountDropdown');
+  if (dropdown) dropdown.classList.remove('open');
 }
 
 function toggleStudentSidebar() {
- const sidebar = document.getElementById('studentSidebar');
- const overlay = document.getElementById('studentSidebarOverlay');
- const isMobile = window.matchMedia('(max-width: 768px)').matches;
+  const sidebar = document.getElementById('studentSidebar');
+  const overlay = document.getElementById('studentSidebarOverlay');
+  const isMobile = window.matchMedia('(max-width: 768px)').matches;
 
- if (isMobile) {
- sidebar.classList.toggle('open');
- overlay.classList.toggle('open');
- return;
- }
+  if (isMobile) {
+    sidebar.classList.toggle('open');
+    overlay.classList.toggle('open');
+    return;
+  }
 
- document.body.classList.toggle('sidebar-collapsed');
+  document.body.classList.toggle('sidebar-collapsed');
 }
 
 function getLoginRole() {
@@ -317,36 +317,36 @@ function getLoginRole() {
 }
 
 function normalizeStudentAccount(student) {
- if (!student) return null;
+  if (!student) return null;
 
- if (typeof student === 'string') {
- try {
- student = JSON.parse(student);
- } catch (err) {
- return null;
- }
- }
+  if (typeof student === 'string') {
+    try {
+      student = JSON.parse(student);
+    } catch (err) {
+      return null;
+    }
+  }
 
- const id = student.id || student.student_id || student.studentId;
- if (!id) return null;
+  const id = student.id || student.student_id || student.studentId;
+  if (!id) return null;
 
- return {
- id,
- lastName: student.lastName || student.last_name || '',
- firstName: student.firstName || student.first_name || '',
- middleName: student.middleName || student.middle_name || '',
- birthMonth: String(student.birthMonth || student.birth_month || ''),
- birthDay: String(student.birthDay || student.birth_day || ''),
- birthYear: String(student.birthYear || student.birth_year || ''),
- gradeLevel: student.gradeLevel || student.grade_level || 'Grade 11',
+  return {
+    id,
+    lastName: student.lastName || student.last_name || '',
+    firstName: student.firstName || student.first_name || '',
+    middleName: student.middleName || student.middle_name || '',
+    birthMonth: String(student.birthMonth || student.birth_month || ''),
+    birthDay: String(student.birthDay || student.birth_day || ''),
+    birthYear: String(student.birthYear || student.birth_year || ''),
+    gradeLevel: student.gradeLevel || student.grade_level || 'Grade 11',
  strand: student.strand || student.strandCode || 'STEM',
  strandFull: student.strandFull || student.strand_full || student.strand || 'STEM',
- section: student.section || '',
- track: student.track || 'Academic',
- admissionStatus: student.admissionStatus || student.admission_status || 'New',
- scholasticStatus: student.scholasticStatus || student.scholastic_status || 'Regular',
- schoolYear: student.schoolYear || student.school_year || '2026-2027',
- semester: student.semester || 'First Semester',
+    section: student.section || '',
+    track: student.track || 'Academic',
+    admissionStatus: student.admissionStatus || student.admission_status || 'New',
+    scholasticStatus: student.scholasticStatus || student.scholastic_status || 'Regular',
+    schoolYear: student.schoolYear || student.school_year || '2026-2027',
+    semester: student.semester || 'First Semester',
  semesterCode: student.semesterCode || student.semester_code || '1st',
  enrollmentOpen: student.enrollmentOpen ?? student.enrollment_open ?? true,
  accountStatus: student.accountStatus || student.account_status || 'active',
@@ -366,35 +366,35 @@ function normalizeStudentAccount(student) {
 }
 
 async function loginStudentRemote(userId, password) {
- try {
- const res = await fetch('/api/auth/student', {
- method: 'POST',
- headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify({
- studentId: userId,
- password: password.trim()
- })
- });
- const text = await res.text();
- if (text.trim().startsWith('<')) {
+  try {
+    const res = await fetch('/api/auth/student', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        studentId: userId,
+        password: password.trim()
+      })
+    });
+    const text = await res.text();
+    if (text.trim().startsWith('<')) {
  console.warn('Student auth API not found — restart server with: python server.py');
- return null;
- }
- const result = JSON.parse(text);
- if (result.success && result.student) {
+      return null;
+    }
+    const result = JSON.parse(text);
+    if (result.success && result.student) {
  loginStudentRemote.lastLockUntil = null;
- return normalizeStudentAccount(result.student);
- }
- if (!result.success && result.error) {
- loginStudentRemote.lastError = result.error + (result.hint ? ` ${result.hint}` : '');
+      return normalizeStudentAccount(result.student);
+    }
+    if (!result.success && result.error) {
+      loginStudentRemote.lastError = result.error + (result.hint ? ` ${result.hint}` : '');
  loginStudentRemote.lastCode = result.code || null;
  loginStudentRemote.lastLockUntil = result.lockUntil || null;
  loginStudentRemote.lastFails = result.failedAttempts || null;
- }
- } catch (err) {
- console.warn('Server student login unavailable:', err);
- }
- return null;
+    }
+  } catch (err) {
+    console.warn('Server student login unavailable:', err);
+  }
+  return null;
 }
 
 function initStudentLoginPage() {
@@ -508,7 +508,7 @@ function initEnrollmentEntryTypeCard() {
  let saved = 'new';
  try {
  saved = normalizeEnrollmentEntryType(sessionStorage.getItem(ADMISSION_ENTRY_TYPE_KEY));
- } catch (err) {
+  } catch (err) {
  saved = 'new';
  }
 
@@ -521,7 +521,7 @@ function initEnrollmentEntryTypeCard() {
  const type = normalizeEnrollmentEntryType(selected?.value);
  try {
  sessionStorage.setItem(ADMISSION_ENTRY_TYPE_KEY, type);
- } catch (err) {
+    } catch (err) {
  /* ignore */
  }
  const url = buildEnrollStartUrl(type);
@@ -596,10 +596,10 @@ function initForgotPasswordModal() {
  return;
  }
 
- if (errorEl) {
- errorEl.style.display = 'none';
- errorEl.textContent = '';
- }
+  if (errorEl) {
+    errorEl.style.display = 'none';
+    errorEl.textContent = '';
+  }
  if (submitBtn) {
  submitBtn.disabled = true;
  submitBtn.textContent = 'Sending...';
@@ -684,7 +684,7 @@ function applyA11yScale(scale) {
  if (main) {
  if ('zoom' in main.style) {
  main.style.zoom = factor === 1 ? '' : String(factor);
- } else {
+  } else {
  main.style.fontSize = factor === 1 ? '' : `${scale}%`;
  }
  }
@@ -747,43 +747,43 @@ function mountAccessibilityWidget() {
 }
 
 function renderAccessibility() {
- return `
+  return `
  <button class="accessibility-btn" id="a11yBtn" type="button" title="Accessibility" aria-label="Open accessibility menu" onclick="toggleA11yPanel(event)">
  ${navIcon('accessibility')}
  </button>
  <div class="accessibility-panel" id="a11yPanel" onclick="event.stopPropagation()">
- <div class="a11y-header">
- Accessibility Menu
+      <div class="a11y-header">
+        Accessibility Menu
  <button type="button" class="a11y-close-btn" onclick="toggleA11yPanel(event)" aria-label="Close accessibility menu">
  ${navIcon('close')}
  </button>
- </div>
- <div class="a11y-body">
- <div class="a11y-profile">
+      </div>
+      <div class="a11y-body">
+        <div class="a11y-profile">
  <label for="a11yToggleSeizure">Seizure Safe Profile</label>
  <button type="button" id="a11yToggleSeizure" class="a11y-toggle" role="switch" aria-checked="${a11yPrefs.seizure ? 'true' : 'false'}" data-profile="seizure" onclick="toggleProfile(this)"></button>
- </div>
- <div class="a11y-profile">
+        </div>
+        <div class="a11y-profile">
  <label for="a11yToggleVisual">Visually Impaired Profile</label>
  <button type="button" id="a11yToggleVisual" class="a11y-toggle" role="switch" aria-checked="${a11yPrefs.visual ? 'true' : 'false'}" data-profile="visual" onclick="toggleProfile(this)"></button>
- </div>
- <div class="a11y-profile">
+        </div>
+        <div class="a11y-profile">
  <label for="a11yToggleAdhd">ADHD Friendly Profile</label>
  <button type="button" id="a11yToggleAdhd" class="a11y-toggle" role="switch" aria-checked="${a11yPrefs.adhd ? 'true' : 'false'}" data-profile="adhd" onclick="toggleProfile(this)"></button>
- </div>
- <div class="a11y-profile">
+        </div>
+        <div class="a11y-profile">
  <label for="a11yToggleCognitive">Cognitive & Learning Profile</label>
  <button type="button" id="a11yToggleCognitive" class="a11y-toggle" role="switch" aria-checked="${a11yPrefs.cognitive ? 'true' : 'false'}" data-profile="cognitive" onclick="toggleProfile(this)"></button>
- </div>
- <div class="font-size-control">
- <span>Adjust Font Size</span>
+        </div>
+        <div class="font-size-control">
+          <span>Adjust Font Size</span>
  <button type="button" class="a11y-font-btn" onclick="adjustFontSize(-1)" aria-label="Decrease font size">${navIcon('minus')}</button>
  <span id="fontSizeLabel">${a11yPrefs.fontScale}%</span>
  <button type="button" class="a11y-font-btn" onclick="adjustFontSize(1)" aria-label="Increase font size">${navIcon('plus')}</button>
- </div>
- </div>
- </div>
- `;
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function toggleA11yPanel(event) {
@@ -792,7 +792,7 @@ function toggleA11yPanel(event) {
 }
 
 function toggleProfile(el) {
- const profile = el.dataset.profile;
+  const profile = el.dataset.profile;
  if (!profile) return;
 
  const on = !el.classList.contains('on');
@@ -854,28 +854,28 @@ function applyStudentPortalSettings() {
 }
 
 function initPage(activePage) {
- if (!requireAuth()) return;
+  if (!requireAuth()) return;
  ensureFontAwesome();
- const student = getStudent();
- document.body.classList.add('student-layout');
+  const student = getStudent();
+  document.body.classList.add('student-layout');
  applyStudentPortalSettings();
- document.getElementById('studentSidebarWrap').innerHTML = renderStudentSidebar(activePage);
+  document.getElementById('studentSidebarWrap').innerHTML = renderStudentSidebar(activePage);
  document.getElementById('studentHeader').innerHTML = renderStudentHeader(student, activePage);
  const footerEl = document.getElementById('footer');
  if (footerEl) footerEl.remove();
  mountAccessibilityWidget();
- if (!accountMenuListenerAttached) {
- document.addEventListener('click', closeAccountMenu);
- accountMenuListenerAttached = true;
- }
- const infoEl = document.getElementById('studentInfo');
- if (infoEl) infoEl.textContent = formatStudentName(student);
+  if (!accountMenuListenerAttached) {
+    document.addEventListener('click', closeAccountMenu);
+    accountMenuListenerAttached = true;
+  }
+  const infoEl = document.getElementById('studentInfo');
+  if (infoEl) infoEl.textContent = formatStudentName(student);
  if (activePage === 'home') {
  initStudentHome(student);
  refreshStudentProfilePhoto(student);
  }
  startStudentIdleLogout();
- return student;
+  return student;
 }
 
 const IDLE_LIMIT_MS = 15 * 60 * 1000;
@@ -1032,42 +1032,42 @@ function recordLoginFailureClient(serverLockUntil) {
 }
 
 async function handleLogin(e) {
- e.preventDefault();
+  e.preventDefault();
 
- const userIdEl = document.getElementById('studentId');
- const passwordEl = document.getElementById('password');
- const errorEl = document.getElementById('loginError');
- const submitBtn = e.target.querySelector('button[type="submit"]');
+  const userIdEl = document.getElementById('studentId');
+  const passwordEl = document.getElementById('password');
+  const errorEl = document.getElementById('loginError');
+  const submitBtn = e.target.querySelector('button[type="submit"]');
 
- if (!userIdEl || !passwordEl || !errorEl) {
- return;
- }
+  if (!userIdEl || !passwordEl || !errorEl) {
+    return;
+  }
 
  const remaining = refreshLoginLockoutUI();
  if (remaining > 0) {
  errorEl.style.display = 'block';
  errorEl.textContent = `Too many failed attempts. Try again in ${remaining}s.`;
- return;
- }
+    return;
+  }
 
- const userId = userIdEl.value.trim().toUpperCase();
- const password = passwordEl.value;
+  const userId = userIdEl.value.trim().toUpperCase();
+  const password = passwordEl.value;
 
- errorEl.style.display = 'none';
- errorEl.textContent = '';
+  errorEl.style.display = 'none';
+  errorEl.textContent = '';
 
- if (!userId || !password) {
- errorEl.style.display = 'block';
+  if (!userId || !password) {
+    errorEl.style.display = 'block';
  errorEl.textContent = 'Please enter your Student ID and password.';
- return;
- }
+    return;
+  }
 
- if (submitBtn) {
- submitBtn.disabled = true;
- submitBtn.textContent = 'Signing in...';
- }
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Signing in...';
+  }
 
- try {
+  try {
  loginStudentRemote.lastError = '';
  loginStudentRemote.lastCode = null;
  loginStudentRemote.lastLockUntil = null;
@@ -1077,50 +1077,50 @@ async function handleLogin(e) {
   const until = loginStudentRemote.lastLockUntil;
   if (until) writeLoginLockState({ fails: LOGIN_MAX_FAILS, lockUntil: Number(until) });
   refreshLoginLockoutUI();
-  errorEl.style.display = 'block';
+      errorEl.style.display = 'block';
   errorEl.textContent = loginStudentRemote.lastError || `Too many failed attempts. Try again in ${LOGIN_LOCK_SECONDS}s.`;
   loginStudentRemote.lastError = '';
-  return;
- }
+      return;
+    }
 
- if (!student && typeof SupabaseService !== 'undefined' && SupabaseService.isEnabled()) {
- try {
+    if (!student && typeof SupabaseService !== 'undefined' && SupabaseService.isEnabled()) {
+      try {
  const remote = await SupabaseService.loginStudent(userId, password.trim());
  if (remote && remote.error) {
  errorEl.textContent = remote.message || 'Account access denied.';
  recordLoginFailureClient();
  return;
  }
- student = normalizeStudentAccount(remote);
- } catch (err) {
- console.warn('Supabase student login failed:', err);
- }
- }
+        student = normalizeStudentAccount(remote);
+      } catch (err) {
+        console.warn('Supabase student login failed:', err);
+      }
+    }
 
- if (
- !student &&
- typeof SAMPLE_STUDENT !== 'undefined' &&
- userId === SAMPLE_STUDENT.id &&
- password.trim() === SAMPLE_STUDENT.password
- ) {
- student = normalizeStudentAccount(SAMPLE_STUDENT);
- }
+    if (
+      !student &&
+      typeof SAMPLE_STUDENT !== 'undefined' &&
+      userId === SAMPLE_STUDENT.id &&
+      password.trim() === SAMPLE_STUDENT.password
+    ) {
+      student = normalizeStudentAccount(SAMPLE_STUDENT);
+    }
 
- if (student) {
+    if (student) {
  clearLoginLockState();
- setStudent(student);
+      setStudent(student);
  if (student.mustChangePassword) {
  window.location.href = 'student/settings.html';
  } else {
- window.location.href = 'student/home.html';
+      window.location.href = 'student/home.html';
  }
- return;
- }
+      return;
+    }
 
  recordLoginFailureClient(loginStudentRemote.lastLockUntil);
  const state = readLoginLockState();
  const left = getLoginLockRemainingSec(state);
- errorEl.style.display = 'block';
+    errorEl.style.display = 'block';
  if (left > 0) {
   errorEl.textContent = `Too many failed attempts. Try again in ${left}s.`;
  } else {
@@ -1128,21 +1128,21 @@ async function handleLogin(e) {
   errorEl.textContent = (loginStudentRemote.lastError || 'Invalid Student ID or password.')
    + (fails > 0 ? ` (${fails}/${LOGIN_MAX_FAILS} failed attempts)` : '');
  }
- loginStudentRemote.lastError = '';
- } catch (err) {
- console.error('Login error:', err);
- errorEl.style.display = 'block';
+    loginStudentRemote.lastError = '';
+  } catch (err) {
+    console.error('Login error:', err);
+    errorEl.style.display = 'block';
  errorEl.textContent = 'Sign in failed. Please try again.';
- } finally {
+  } finally {
  if (submitBtn && getLoginLockRemainingSec(readLoginLockState()) <= 0) {
- submitBtn.disabled = false;
+      submitBtn.disabled = false;
  submitBtn.textContent = 'Login';
- }
- }
+    }
+  }
 }
 
 function populateBirthdateSelects() {
- // Birthdate now uses a single date input on the login form.
+  // Birthdate now uses a single date input on the login form.
 }
 
 const StudentDialog = (() => {

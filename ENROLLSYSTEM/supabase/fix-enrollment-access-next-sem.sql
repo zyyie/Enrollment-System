@@ -1,5 +1,11 @@
--- Fix: allow next-semester enrollment after previous term is complete
--- Run in Supabase SQL Editor after fix-enrollment-lifecycle.sql
+-- Enrollment Period + student eligibility (run AFTER fix-enrollment-lifecycle.sql)
+-- Admin opens/closes the current semester; this RPC decides which students may enroll.
+--
+-- Rules:
+--   Open G11 2nd  → only after G11 1st complete (enrolled + paid + all grades, no fails)
+--   Open G12 1st  → only after G11 2nd complete and not retained_g11
+--   Open G12 2nd  → only after G12 1st complete
+-- Students cannot skip stages. Enrollment Period == open/closed window only.
 
 CREATE OR REPLACE FUNCTION get_student_enrollment_access(p_student_id TEXT)
 RETURNS JSON
@@ -42,6 +48,7 @@ BEGIN
   v_is_completed := COALESCE((v_lifecycle->>'isCompleted')::BOOLEAN, FALSE);
   v_blocked := v_lifecycle->>'blockedReason';
 
+  -- Admin Enrollment Period: only the CURRENT semester window
   SELECT sem.enrollment_open, sem.target_grade_level, sem.name, sem.code
   INTO v_enrollment_open, v_target_grade, v_semester_name, v_semester_code
   FROM semesters sem
@@ -53,11 +60,12 @@ BEGIN
     ELSE 'the next school year (1st Semester)'
   END;
 
-  SELECT e.status, sem.name, sem.code
-  INTO v_current_status, v_semester_name, v_semester_code
+  -- Only enrollment on the CURRENT open term blocks re-submit (not prior terms)
+  SELECT e.status INTO v_current_status
   FROM enrollments e
   JOIN semesters sem ON sem.id = e.semester_id
   WHERE e.student_id = v_student
+    AND sem.is_current = TRUE
     AND e.status IN ('pending', 'approved', 'enrolled')
   ORDER BY e.created_at DESC
   LIMIT 1;
@@ -70,7 +78,7 @@ BEGIN
   v_stage_sem := CASE
     WHEN v_next_stage IN ('g11_1st', 'g12_1st') THEN '1st'
     WHEN v_next_stage IN ('g11_2nd', 'g12_2nd') THEN '2nd'
-    ELSE v_semester_code
+    ELSE COALESCE(v_semester_code, '1st')
   END;
 
   IF v_is_completed OR v_progression = 'graduated' THEN
@@ -84,73 +92,46 @@ BEGIN
       'Enrollment is currently closed for %s. Please wait for the registrar to open the registration period.',
       COALESCE(v_semester_name, 'this term')
     );
-  ELSIF v_current_status = 'rejected' THEN
-    v_current_status := NULL;
-  END IF;
-
-  IF v_reason = '' THEN
-    IF v_current_status IN ('pending', 'approved') THEN
-      IF v_next_stage IS NOT NULL
-         AND lifecycle_stage_matches_term(v_next_stage, v_grade_level, v_semester_code) THEN
-        v_reason := format(
-          'Your %s enrollment is pending approval. Please wait for the administrator.',
-          COALESCE(v_lifecycle->>'nextStageLabel', COALESCE(v_semester_name, 'this term'))
-        );
-      ELSE
-        v_reason := format(
-          'You have an enrollment submission for %s (%s) that must be resolved first. Please contact the registrar.',
-          COALESCE(v_semester_name, 'this term'),
-          COALESCE(v_grade_level, 'your grade level')
-        );
-      END IF;
-    ELSIF v_current_status = 'enrolled' THEN
-      IF is_stage_complete(v_student, v_grade_level, v_semester_code) THEN
-        v_reason := format(
-          'You have completed %s (%s). Enrollment for %s will open when the registrar enables it.',
-          COALESCE(v_semester_name, 'this term'),
-          COALESCE(v_grade_level, ''),
-          v_next_semester
-        );
-      ELSIF v_blocked IS NOT NULL AND btrim(v_blocked) <> '' THEN
-        v_reason := v_blocked;
-      ELSE
-        v_reason := format(
-          'You are already enrolled for %s (%s).',
-          COALESCE(v_semester_name, 'this term'),
-          COALESCE(v_grade_level, '')
-        );
-      END IF;
-    ELSIF v_blocked IS NOT NULL AND btrim(v_blocked) <> '' THEN
-      v_reason := v_blocked;
-    ELSIF v_next_stage IS NULL THEN
-      v_reason := 'Enrollment is not available for your current academic stage. Please contact the registrar.';
-    ELSIF NOT lifecycle_stage_matches_term(v_next_stage, v_stage_grade, v_stage_sem) THEN
-      v_reason := format(
-        'Your next enrollment stage is %s. The registrar must open that term before you can enroll.',
-        v_lifecycle->>'nextStageLabel'
-      );
-    ELSIF v_target_grade IS NOT NULL AND v_target_grade <> v_stage_grade THEN
-      v_reason := format(
-        'Enrollment is open for %s only. Your next required stage is %s.',
-        v_target_grade,
-        v_lifecycle->>'nextStageLabel'
-      );
-    ELSIF COALESCE(v_semester_code, '1st') <> v_stage_sem THEN
-      v_reason := format(
-        'Enrollment is open for %s. Your next required stage is %s.',
-        COALESCE(v_semester_name, 'this term'),
-        v_lifecycle->>'nextStageLabel'
-      );
-    ELSIF v_progression = 'retained_g11' AND v_next_stage LIKE 'g12_%' THEN
-      v_reason := 'You have unresolved failing grades in Grade 11. Grade 12 enrollment is not available until requirements are fulfilled. Please contact the registrar.';
-    ELSIF v_target_grade IS NOT NULL
-      AND v_target_grade <> v_stage_grade
-      AND NOT (v_progression = 'eligible_g12' AND v_next_stage LIKE 'g12_%') THEN
-      v_reason := format('Enrollment is open for %s only. Your next stage is %s.', v_target_grade, v_lifecycle->>'nextStageLabel');
-    ELSE
-      v_can_enroll := TRUE;
-      v_reason := format('You may enroll for %s.', v_lifecycle->>'nextStageLabel');
-    END IF;
+  ELSIF v_current_status IN ('pending', 'approved') THEN
+    v_reason := format(
+      'Your %s enrollment is pending approval. Please wait for the administrator.',
+      COALESCE(v_lifecycle->>'nextStageLabel', COALESCE(v_semester_name, 'this term'))
+    );
+  ELSIF v_current_status = 'enrolled' THEN
+    v_reason := format(
+      'You are already enrolled for %s (%s).',
+      COALESCE(v_semester_name, 'this term'),
+      COALESCE(v_stage_grade, v_grade_level, '')
+    );
+  ELSIF v_blocked IS NOT NULL AND btrim(v_blocked) <> '' THEN
+    v_reason := v_blocked;
+  ELSIF v_next_stage IS NULL THEN
+    v_reason := 'Enrollment is not available for your current academic stage. Please contact the registrar.';
+  ELSIF COALESCE(v_semester_code, '1st') <> v_stage_sem THEN
+    v_reason := format(
+      'Enrollment is open for %s. Your next required stage is %s. The registrar must open that semester before you can enroll.',
+      COALESCE(v_semester_name, 'this term'),
+      v_lifecycle->>'nextStageLabel'
+    );
+  ELSIF v_target_grade IS NOT NULL AND v_target_grade <> v_stage_grade THEN
+    v_reason := format(
+      'Enrollment is open for %s only. Your next required stage is %s.',
+      v_target_grade,
+      v_lifecycle->>'nextStageLabel'
+    );
+  ELSIF v_progression = 'retained_g11' AND v_next_stage LIKE 'g12_%' THEN
+    v_reason := 'You have unresolved failing grades in Grade 11. Grade 12 enrollment is not available until requirements are fulfilled. Please contact the registrar.';
+  ELSIF v_next_stage LIKE 'g12_%'
+        AND v_progression NOT IN ('eligible_g12', 'graduated')
+        AND COALESCE(v_grade_level, '') <> 'Grade 12'
+        AND NOT is_stage_complete(v_student, 'Grade 11', '2nd') THEN
+    v_reason := format(
+      'Complete Grade 11 — 2nd Semester and become eligible for Grade 12 before enrolling in %s.',
+      v_lifecycle->>'nextStageLabel'
+    );
+  ELSE
+    v_can_enroll := TRUE;
+    v_reason := format('You may enroll for %s.', v_lifecycle->>'nextStageLabel');
   END IF;
 
   RETURN json_build_object(

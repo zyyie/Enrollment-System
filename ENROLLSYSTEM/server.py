@@ -1164,15 +1164,15 @@ def handle_student_login(handler):
             })
             return
         if not student and (birth_month and birth_day and birth_year):
-            result, error = supabase_rpc("authenticate_student", {
-                "p_student_id": student_id,
-                "p_birth_month": birth_month,
-                "p_birth_day": birth_day,
-                "p_birth_year": birth_year,
-                "p_password": password,
-            }, timeout=10)
-            if error:
-                print(f"[Supabase auth error] {parse_supabase_error(error)}")
+        result, error = supabase_rpc("authenticate_student", {
+            "p_student_id": student_id,
+            "p_birth_month": birth_month,
+            "p_birth_day": birth_day,
+            "p_birth_year": birth_year,
+            "p_password": password,
+        }, timeout=10)
+        if error:
+            print(f"[Supabase auth error] {parse_supabase_error(error)}")
             elif isinstance(result, dict) and result.get("error") == "ACCOUNT_FROZEN":
                 json_response(handler, 403, {
                     "success": False,
@@ -1187,8 +1187,8 @@ def handle_student_login(handler):
                     "code": "ACCOUNT_INACTIVE",
                 })
                 return
-            elif isinstance(result, dict) and result.get("id"):
-                student = result
+        elif isinstance(result, dict) and result.get("id"):
+            student = result
 
     if not student and not supabase_configured():
         student = local_student_login(student_id, birth_month, birth_day, birth_year, password)
@@ -2225,7 +2225,7 @@ def run_admission_post_submit(application_id, files, local_doc_paths, app_data, 
     """Send confirmation emails first, then upload documents to Supabase storage."""
     try:
         _send_submission_emails(app_data, local_doc_paths, gcash_proof_path, app_number, files)
-    except Exception as err:
+        except Exception as err:
         print(f"[Email post-submit] Failed to send confirmation emails: {err}")
         import traceback
         traceback.print_exc()
@@ -2320,21 +2320,21 @@ def _send_submission_emails(app_data, doc_paths, gcash_proof_path, app_number, f
 
     time.sleep(3.0)
 
-    attachments = [{"path": path, "name": Path(path).name} for path in doc_paths.values()]
-    if gcash_proof_path and gcash_proof_path not in doc_paths.values():
-        attachments.append({"path": gcash_proof_path, "name": Path(gcash_proof_path).name})
-    bank_proof_path = doc_paths.get("bank_proof")
-    if bank_proof_path and bank_proof_path not in doc_paths.values():
-        attachments.append({"path": bank_proof_path, "name": Path(bank_proof_path).name})
+        attachments = [{"path": path, "name": Path(path).name} for path in doc_paths.values()]
+        if gcash_proof_path and gcash_proof_path not in doc_paths.values():
+            attachments.append({"path": gcash_proof_path, "name": Path(gcash_proof_path).name})
+        bank_proof_path = doc_paths.get("bank_proof")
+        if bank_proof_path and bank_proof_path not in doc_paths.values():
+            attachments.append({"path": bank_proof_path, "name": Path(bank_proof_path).name})
 
-    admin_target = ADMIN_EMAIL or GMAIL_USER
-    if admin_target:
-        ok, err = send_email(
-            admin_target,
-            f"[{SCHOOL_NAME}] New Admission — {app_number}",
-            build_admin_submission_email(app_data, doc_paths),
-            attachments,
-        )
+        admin_target = ADMIN_EMAIL or GMAIL_USER
+        if admin_target:
+            ok, err = send_email(
+                admin_target,
+                f"[{SCHOOL_NAME}] New Admission — {app_number}",
+                build_admin_submission_email(app_data, doc_paths),
+                attachments,
+            )
         print(f"[Email admin] sent={ok} error={err}")
 
 
@@ -2634,10 +2634,10 @@ def _deliver_smtp_message(msg, to_addr):
 
     def send_tls():
         with smtplib.SMTP("smtp.gmail.com", 587, timeout=60) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+        server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
             server.sendmail(from_addr, recipients, payload)
 
     with _smtp_send_lock:
@@ -2904,7 +2904,7 @@ def handle_admission_submit(handler):
     file_error = validate_admission_files(files, payment_mode=fields.get("paymentMode", ""))
     if file_error:
         json_response(handler, 400, {"success": False, "error": file_error})
-        return
+            return
 
     application_id = str(uuid.uuid4())
     doc_paths, local_doc_paths = persist_admission_documents(application_id, files)
@@ -3008,29 +3008,29 @@ def handle_admission_submit(handler):
         })
         return
 
-    result, error = supabase_rpc(
-        "submit_admission_application",
-        {"p_payload": payload},
-        timeout=15,
-    )
-    if error:
+        result, error = supabase_rpc(
+            "submit_admission_application",
+            {"p_payload": payload},
+            timeout=15,
+        )
+        if error:
         detail = parse_supabase_error(error)
         print(f"[Supabase error] submit_admission_application: {detail}")
         print(f"[Supabase raw error] {error[:800] if error else ''}")
-        json_response(handler, 500, {
-            "success": False,
+            json_response(handler, 500, {
+                "success": False,
             "error": "We could not save your application right now. Please try again in a few minutes or contact the registrar office.",
-            "hint": (
+                "hint": (
                 "Database needs updating: open Supabase → SQL Editor, run "
                 "ENROLLSYSTEM/supabase/fix-admission-submit.sql, then submit again."
-            ),
+                ),
             "details": detail,
-        })
-        return
+            })
+            return
 
-    app_number = result.get("applicationNumber")
-    supabase_id = result.get("applicationId", application_id)
-    print(f"[Supabase] Saved admission {app_number}")
+        app_number = result.get("applicationNumber")
+        supabase_id = result.get("applicationId", application_id)
+        print(f"[Supabase] Saved admission {app_number}")
 
     app_data = {**payload, "applicationNumber": app_number, "strandCode": fields.get("strandCode", "")}
 
@@ -3548,7 +3548,7 @@ def load_admission_offerings(
         return [], "failed", error
     if rest_error:
         return [], "failed", rest_error
-    if error:
+        if error:
         return [], "failed", error
     return [], "failed", None
 
@@ -4505,14 +4505,14 @@ def handle_enrollment_submit(handler):
             "paymentAmount": (fields.get("paymentAmount") or str(ENROLLMENT_FEE)).strip(),
         }
     else:
-        try:
-            body = read_json_body(handler)
-        except json.JSONDecodeError:
-            json_response(handler, 400, {"success": False, "error": "Invalid request body"})
-            return
+    try:
+        body = read_json_body(handler)
+    except json.JSONDecodeError:
+        json_response(handler, 400, {"success": False, "error": "Invalid request body"})
+        return
 
-        student_id = (body.get("studentId") or "").strip().upper()
-        subjects = body.get("subjects") or []
+    student_id = (body.get("studentId") or "").strip().upper()
+    subjects = body.get("subjects") or []
         payment_fields = {
             "paymentMode": (body.get("paymentMode") or "cashier").strip().lower(),
             "gcashReference": (body.get("gcashReference") or "").strip(),
@@ -4544,7 +4544,7 @@ def handle_enrollment_submit(handler):
         file_error = validate_admission_files(files, payment_mode=payment_mode)
         if file_error:
             json_response(handler, 400, {"success": False, "error": file_error})
-            return
+        return
 
     if supabase_configured():
         access = fetch_enrollment_access_rest(student_id)
@@ -4611,11 +4611,11 @@ def handle_enrollment_submit(handler):
                 print(f"[Enrollment payment record] {pay_error}")
                 delete_pending_enrollment_record(enrollment_id)
                 json_response(handler, 500, {
-                    "success": False,
+                "success": False,
                     "error": "Enrollment could not be completed because payment details were not saved. Please try again. If this continues, run enrollment-payment-submit.sql in Supabase.",
                     "enrollmentId": enrollment_id,
-                })
-                return
+            })
+            return
 
         dispatch_subject_enrollment_email(
             student_id,
