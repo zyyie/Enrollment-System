@@ -70,21 +70,33 @@ function filterOfferingsByTerm(student, offerings) {
   return (offerings || []).filter(subj => allowed.has(subj.code));
 }
 
+function recordSemesterCode(record) {
+  const raw = String(record?.semesterCode || record?.semester || '').toLowerCase();
+  if (raw === '2nd' || raw.includes('second') || raw.includes('2nd')) return '2nd';
+  if (raw === '1st' || raw.includes('first') || raw.includes('1st')) return '1st';
+  return '';
+}
+
 function enrollmentMatchesCurrentTerm(student, record) {
   if (!record) return false;
-  if (isLockedEnrollmentStatus(record.status)) return true;
+  const recordSem = recordSemesterCode(record);
+  const studentSem = normalizeSemesterCode(student);
+  if (recordSem && recordSem !== studentSem) return false;
   const subjects = record.subjects;
-  if (!Array.isArray(subjects) || !subjects.length) return false;
-  if (typeof subjectsForTerm !== 'function') return true;
-  const sem = record.semesterCode || normalizeSemesterCode(student);
+  if (!Array.isArray(subjects) || !subjects.length) {
+    return isLockedEnrollmentStatus(record.status) && (!recordSem || recordSem === studentSem);
+  }
+  if (typeof subjectsForTerm !== 'function') {
+    return !recordSem || recordSem === studentSem;
+  }
   const allowed = new Set(
     subjectsForTerm(
       normalizeStrandCode(student),
       normalizeGradeLevel(student),
-      sem
+      studentSem
     ).map(subj => subj.code)
   );
-  return subjects.every(subj => allowed.has(subj.code));
+  return subjects.every(subj => !subj.code || allowed.has(subj.code));
 }
 
 function isValidLockedEnrollment(student, record) {
@@ -815,10 +827,24 @@ function updateRequiredSubjectsLabel(student) {
   }
 }
 
+const ENROLLMENT_STAGE_TERM = {
+  g11_1st: { gradeLevel: 'Grade 11', semesterCode: '1st', semester: '1st Semester' },
+  g11_2nd: { gradeLevel: 'Grade 11', semesterCode: '2nd', semester: '2nd Semester' },
+  g12_1st: { gradeLevel: 'Grade 12', semesterCode: '1st', semester: '1st Semester' },
+  g12_2nd: { gradeLevel: 'Grade 12', semesterCode: '2nd', semester: '2nd Semester' },
+};
+
 function applyAccessToStudent(student, access) {
   if (!student || !access) return student;
-  if (access.semesterCode) student.semesterCode = access.semesterCode;
-  if (access.semesterName) student.semester = access.semesterName;
+  const stage = ENROLLMENT_STAGE_TERM[access.nextStage];
+  if (stage) {
+    student.gradeLevel = stage.gradeLevel;
+    student.semesterCode = stage.semesterCode;
+    student.semester = stage.semester;
+  } else if (access.semesterCode) {
+    student.semesterCode = access.semesterCode;
+    if (access.semesterName) student.semester = access.semesterName;
+  }
   if (access.enrollmentOpen !== undefined) student.enrollmentOpen = access.enrollmentOpen;
   if (typeof setStudent === 'function') setStudent(student);
   return student;
@@ -950,6 +976,13 @@ async function initEnrollmentPage(student) {
     showCompletedView(student, access);
       return;
     }
+
+  if (access && access.canEnroll) {
+    await loadEnrollmentSubjects(student);
+    updateOfferingCount(student);
+    showSelectionView(student);
+    return;
+  }
 
   if (isValidLockedEnrollment(student, mappedRecord)) {
     await showWaitingView(student, mappedRecord, access);

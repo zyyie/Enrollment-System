@@ -292,6 +292,20 @@ const SupabaseService = (() => {
   }
 
   async function getStudentStrandSchedule(studentId) {
+    const json = await fetchFromServer(
+      '/api/student/schedule?studentId=' + encodeURIComponent(studentId)
+    );
+    if (json && json.success && json.data) {
+      const payload = json.data;
+      if (payload && typeof payload === 'object' && 'schedule' in payload) {
+        return {
+          enrollmentStatus: payload.enrollmentStatus || 'unknown',
+          message: payload.message || null,
+          schedule: normalizeJsonArray(payload.schedule),
+        };
+      }
+    }
+
     const { data, error } = await callRpc('get_student_strand_schedule', {
       p_student_id: studentId
     });
@@ -310,20 +324,6 @@ const SupabaseService = (() => {
       }
     } else {
       console.warn('Schedule RPC fallback:', error.message);
-    }
-
-    const json = await fetchFromServer(
-      '/api/student/schedule?studentId=' + encodeURIComponent(studentId)
-    );
-    if (json && json.success && json.data) {
-      const payload = json.data;
-      if (payload && typeof payload === 'object' && 'schedule' in payload) {
-        return {
-          enrollmentStatus: payload.enrollmentStatus || 'unknown',
-          message: payload.message || null,
-          schedule: normalizeJsonArray(payload.schedule),
-        };
-      }
     }
 
     if (error && isNetworkError(error.message)) {

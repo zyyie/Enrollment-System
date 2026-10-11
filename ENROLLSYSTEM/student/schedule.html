@@ -51,7 +51,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/js/config.js"></script>
   <script src="/js/supabase-client.js"></script>
-  <script src="/js/supabase-service.js?v=6"></script>
+  <script src="/js/supabase-service.js?v=7"></script>
   <script src="../js/icons.js?v=3"></script>
   <script src="../js/app.js?v=25"></script>
   <script>
@@ -113,12 +113,6 @@
 
       const rows = result.schedule || [];
       const status = result.enrollmentStatus || 'none';
-
-      if (status === 'none') {
-        card.style.display = 'none';
-        showNotice(result.message || 'You have not enrolled for this semester yet. Go to Enrollment to select your subjects.', 'info');
-        return;
-      }
 
       if (status === 'error') {
         card.style.display = 'none';

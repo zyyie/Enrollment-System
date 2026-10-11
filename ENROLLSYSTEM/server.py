@@ -3794,76 +3794,397 @@ def _find_matching_semester(strand_code: str, grade_level: str, subjects: list) 
     return None
 
 
-def adjust_student_grades_payload(student_id: str, payload: dict) -> dict:
-    if not isinstance(payload, dict):
-        return payload
+def _grade_descriptor_from_final(final):
+    if final is None or final == "":
+        return None
+    try:
+        n = float(final)
+    except (TypeError, ValueError):
+        return None
+    if n >= 90:
+        return "Outstanding"
+    if n >= 85:
+        return "Very Satisfactory"
+    if n >= 80:
+        return "Satisfactory"
+    if n >= 75:
+        return "Fairly Satisfactory"
+    return "Did Not Meet Expectations (Failed)"
 
-    terms = payload.get("terms") or []
-    if isinstance(terms, str):
-        try:
-            terms = json.loads(terms)
-        except json.JSONDecodeError:
-            terms = []
 
-    access, _ = supabase_rpc("get_student_enrollment_access", {"p_student_id": student_id}, timeout=10)
-    current_sem = str((access or {}).get("semesterCode") or "1st")
-    strand, grade, _ = fetch_student_strand_code(student_id)
+def _subject_grade_status(final):
+    if final is None or final == "":
+        return "INC"
+    try:
+        return "P" if float(final) >= 75 else "F"
+    except (TypeError, ValueError):
+        return "INC"
 
-    past_terms = []
-    current_term = None
-    for term in terms:
-        if not isinstance(term, dict):
-            continue
-        sem_code = _term_semester_code(term)
-        subjects = term.get("subjects") or []
-        if not subjects:
-            continue
 
-        if sem_code == current_sem:
-            if enrollment_matches_current_term(strand, grade, sem_code, subjects):
-                current_term = term
-                continue
-            matched_sem = _find_matching_semester(strand, grade, subjects)
-            if matched_sem and matched_sem != current_sem:
-                past_terms.append({
-                    **term,
-                    "semesterCode": matched_sem,
-                    "semester": "First Semester" if matched_sem == "1st" else "Second Semester",
-                })
-                continue
-            # One extra subject outside the catalog must not hide the whole term.
-            current_term = term
-            continue
+def _unwrap_nested_row(value):
+    if isinstance(value, list):
+        return value[0] if value else {}
+    if isinstance(value, dict):
+        return value
+    return {}
 
-        past_terms.append(term)
 
-    valid_terms = past_terms[:]
-    if current_term:
-        valid_terms.append(current_term)
-
-    status = payload.get("enrollmentStatus") or "none"
-    not_enrolled_message = (
-        "You have not enrolled for this semester yet. Go to Enrollment to select your subjects."
+def _load_enrollment_grade_map(student_uuid: str) -> tuple[dict, str]:
+    school_year = "2026-2027"
+    mapped = {}
+    enroll_rows, err = supabase_rest_get(
+        "enrollments",
+        (
+            f"student_id=eq.{quote(str(student_uuid))}"
+            "&select=id,status,semesters(code,name,school_years(label))"
+            "&order=created_at.desc"
+        ),
+        use_secret=True,
+        timeout=12,
     )
+    if err or not enroll_rows:
+        return mapped, school_year
 
-    if current_term:
-        return {**payload, "terms": valid_terms, "enrollmentStatus": status}
+    for row in enroll_rows:
+        if str(row.get("status") or "") not in ("pending", "approved", "enrolled"):
+            continue
+        sem = row.get("semesters") or {}
+        sem_code = str(sem.get("code") or "1st")
+        sy = _unwrap_nested_row(sem.get("school_years"))
+        if sy.get("label"):
+            school_year = sy.get("label") or school_year
+        enrollment_id = row.get("id")
+        if not enrollment_id:
+            continue
+        es_rows, _ = supabase_rest_get(
+            "enrollment_subjects",
+            (
+                f"enrollment_id=eq.{quote(str(enrollment_id))}"
+                "&select=id,units,status,subjects(code,name,grade_level,units),"
+                "student_grades(final_grade),class_schedules(sections(name))"
+            ),
+            use_secret=True,
+            timeout=12,
+        )
+        for es in es_rows or []:
+            if str(es.get("status") or "enrolled") not in ("enrolled", "completed", "approved", ""):
+                continue
+            sub = es.get("subjects") or {}
+            code = str(sub.get("code") or "").strip()
+            if not code:
+                continue
+            grade_lv = str(sub.get("grade_level") or "Grade 11")
+            grade_row = _unwrap_nested_row(es.get("student_grades"))
+            final = grade_row.get("final_grade")
+            cs = _unwrap_nested_row(es.get("class_schedules"))
+            sec = _unwrap_nested_row(cs.get("sections"))
+            mapped[(grade_lv, sem_code, code)] = {
+                "code": code,
+                "description": sub.get("name") or "",
+                "faculty": "TBA",
+                "units": es.get("units") if es.get("units") is not None else sub.get("units"),
+                "sectCode": sec.get("name") or "",
+                "finalGrade": final,
+                "descriptor": _grade_descriptor_from_final(final),
+                "status": _subject_grade_status(final),
+            }
+    return mapped, school_year
 
-    if past_terms:
-        return {
-            "enrollmentStatus": "past_only",
-            "message": not_enrolled_message,
-            "terms": past_terms,
-        }
 
-    if status in ("enrolled", "approved", "pending"):
+def build_student_grades_payload(student_id: str) -> dict:
+    strand, grade_level, student_uuid = fetch_student_strand_code(student_id)
+    if not student_uuid:
         return {
             "enrollmentStatus": "none",
-            "message": not_enrolled_message,
+            "message": "Student account not found.",
             "terms": [],
         }
 
-    return {**payload, "terms": valid_terms}
+    enrolled_map, school_year = _load_enrollment_grade_map(student_uuid)
+    sem_rows, _ = supabase_rest_get(
+        "semesters",
+        "is_current=eq.true&select=school_years(label)",
+        use_secret=True,
+        timeout=8,
+    )
+    if sem_rows:
+        sy = _unwrap_nested_row(sem_rows[0].get("school_years"))
+        if sy.get("label"):
+            school_year = sy["label"]
+
+    terms = []
+    has_enrolled = False
+    for sem_code, sem_name in (("1st", "First Semester"), ("2nd", "Second Semester")):
+        catalog = subjects_for_term(strand, grade_level, sem_code)
+        subjects = []
+        grades_for_gpa = []
+        for item in catalog:
+            code = item.get("code")
+            overlay = enrolled_map.get((grade_level, sem_code, code), {})
+            if overlay:
+                has_enrolled = True
+                final = overlay.get("finalGrade")
+                subjects.append({
+                    "code": code,
+                    "description": overlay.get("description") or item.get("description"),
+                    "faculty": overlay.get("faculty") or "TBA",
+                    "units": overlay.get("units") if overlay.get("units") is not None else item.get("units"),
+                    "sectCode": overlay.get("sectCode") or "",
+                    "finalGrade": final,
+                    "descriptor": overlay.get("descriptor") or "—",
+                    "status": overlay.get("status") or "INC",
+                })
+                if final is not None and final != "":
+                    try:
+                        grades_for_gpa.append(float(final))
+                    except (TypeError, ValueError):
+                        pass
+            else:
+                subjects.append({
+                    "code": code,
+                    "description": item.get("description"),
+                    "faculty": "TBA",
+                    "units": item.get("units"),
+                    "sectCode": "",
+                    "finalGrade": None,
+                    "descriptor": "—",
+                    "status": "—",
+                })
+        gpa = round(sum(grades_for_gpa) / len(grades_for_gpa), 2) if grades_for_gpa else None
+        terms.append({
+            "schoolYear": school_year,
+            "semester": sem_name,
+            "semesterCode": sem_code,
+            "gpa": gpa,
+            "subjects": subjects,
+        })
+
+    extra_groups = {}
+    for (g_lv, sem_code, _code), row in enrolled_map.items():
+        if g_lv == grade_level:
+            continue
+        extra_groups.setdefault((g_lv, sem_code), []).append(row)
+    extra_terms = []
+    for (g_lv, sem_code), rows in extra_groups.items():
+        sem_name = "First Semester" if sem_code == "1st" else "Second Semester"
+        nums = []
+        for item in rows:
+            if item.get("finalGrade") is not None and item.get("finalGrade") != "":
+                try:
+                    nums.append(float(item["finalGrade"]))
+                except (TypeError, ValueError):
+                    pass
+        extra_terms.append({
+            "schoolYear": school_year,
+            "semester": f"{g_lv} — {sem_name}",
+            "semesterCode": sem_code,
+            "gpa": round(sum(nums) / len(nums), 2) if nums else None,
+            "subjects": rows,
+        })
+    extra_terms.sort(key=lambda term: (str(term.get("semester") or ""), str(term.get("semesterCode") or "")))
+
+    return {
+        "enrollmentStatus": "enrolled" if has_enrolled else "curriculum",
+        "message": None,
+        "terms": extra_terms + terms,
+    }
+
+
+def adjust_student_grades_payload(student_id: str, payload: dict) -> dict:
+    built = build_student_grades_payload(student_id)
+    if built.get("terms"):
+        return built
+    return payload if isinstance(payload, dict) else built
+
+
+def _list_student_enrollments(student_uuid: str) -> list:
+    rows, err = supabase_rest_get(
+        "enrollments",
+        (
+            f"student_id=eq.{quote(str(student_uuid))}"
+            "&select=id,status,created_at,semester_id,"
+            "semesters(code,name,is_current,school_years(label))"
+            "&order=created_at.desc"
+        ),
+        use_secret=True,
+        timeout=12,
+    )
+    if err or not rows:
+        return []
+    return rows
+
+
+def _format_enrolled_schedule_label(es_row: dict, cs_row: dict) -> str:
+    sessions = cs_row.get("sessions_json") or []
+    if isinstance(sessions, str):
+        try:
+            sessions = json.loads(sessions)
+        except json.JSONDecodeError:
+            sessions = []
+    room = _unwrap_nested_row(cs_row.get("rooms"))
+    room_name = room.get("name") or ""
+    parts = []
+    if isinstance(sessions, list):
+        for session in sessions:
+            if not isinstance(session, dict):
+                continue
+            day = str(session.get("day") or "").strip()
+            start = str(session.get("start") or session.get("start_time") or "").strip()
+            end = str(session.get("end") or session.get("end_time") or "").strip()
+            slot_room = str(session.get("room") or room_name or "TBA").strip()
+            when = " ".join(piece for piece in [day, f"{start}-{end}" if (start or end) else ""] if piece)
+            label = f"{when} @ {slot_room}".strip(" @") if when else slot_room
+            if label:
+                parts.append(label)
+    if parts:
+        return " · ".join(parts)
+    fallback = str(es_row.get("schedule_label") or cs_row.get("schedule_label") or "TBA").strip() or "TBA"
+    if room_name and "@" not in fallback:
+        return f"{fallback} @ {room_name}"
+    return fallback
+
+
+def build_student_payment_payload(student_id: str) -> dict:
+    _strand, _grade, student_uuid = fetch_student_strand_code(student_id)
+    if not student_uuid:
+        return {"found": False, "message": "Student not found.", "payments": []}
+
+    payments = []
+    enrollment_status = "none"
+    for row in _list_student_enrollments(student_uuid):
+        status = str(row.get("status") or "")
+        if status not in ("pending", "approved", "enrolled"):
+            continue
+        sem = row.get("semesters") or {}
+        sy = _unwrap_nested_row(sem.get("school_years"))
+        is_current = bool(sem.get("is_current"))
+        ep = {}
+        pay_rows, _ = supabase_rest_get(
+            "enrollment_payments",
+            (
+                f"enrollment_id=eq.{quote(str(row.get('id')))}"
+                "&select=assessment_amount,amount_paid,balance,status,or_number,"
+                "payment_date,payment_mode,approved_at,notes"
+            ),
+            use_secret=True,
+            timeout=10,
+        )
+        if pay_rows:
+            ep = pay_rows[0]
+        if is_current or enrollment_status == "none":
+            enrollment_status = status
+        payments.append({
+            "enrollmentId": row.get("id"),
+            "schoolYear": sy.get("label") or "",
+            "semester": sem.get("name") or "",
+            "isCurrentTerm": is_current,
+            "assessmentAmount": ep.get("assessment_amount") or 0,
+            "amountPaid": ep.get("amount_paid") or 0,
+            "balance": ep.get("balance") or ep.get("assessment_amount") or 0,
+            "status": ep.get("status") or "unpaid",
+            "orNumber": ep.get("or_number"),
+            "paymentDate": ep.get("payment_date"),
+            "paymentMode": ep.get("payment_mode") or "cashier",
+            "approvedAt": ep.get("approved_at"),
+            "notes": ep.get("notes"),
+        })
+
+    payments.sort(key=lambda item: (not item.get("isCurrentTerm"),))
+    if not payments:
+        return {
+            "found": True,
+            "enrollmentStatus": "none",
+            "payments": [],
+            "message": "No payment record yet. Enroll first, then payment details will appear here.",
+        }
+    return {
+        "found": True,
+        "enrollmentStatus": enrollment_status,
+        "payments": payments,
+        "message": None,
+    }
+
+
+def build_student_schedule_payload(student_id: str) -> dict:
+    _strand, _grade, student_uuid = fetch_student_strand_code(student_id)
+    if not student_uuid:
+        return {
+            "enrollmentStatus": "none",
+            "message": "Student account not found.",
+            "schedule": [],
+        }
+
+    chosen = None
+    for row in _list_student_enrollments(student_uuid):
+        status = str(row.get("status") or "")
+        if status not in ("pending", "approved", "enrolled"):
+            continue
+        sem = row.get("semesters") or {}
+        if chosen is None:
+            chosen = row
+        if sem.get("is_current"):
+            chosen = row
+            break
+
+    if not chosen:
+        return {
+            "enrollmentStatus": "none",
+            "message": "You have not enrolled yet. Go to Enrollment to select your subjects.",
+            "schedule": [],
+        }
+
+    status = str(chosen.get("status") or "")
+    if status == "pending":
+        return {
+            "enrollmentStatus": "pending",
+            "message": "Your enrollment is pending admin approval. Your class schedule will appear here once approved.",
+            "schedule": [],
+        }
+    if status == "rejected":
+        return {
+            "enrollmentStatus": "rejected",
+            "message": "Your enrollment was not approved. Please contact the registrar office.",
+            "schedule": [],
+        }
+
+    es_rows, err = supabase_rest_get(
+        "enrollment_subjects",
+        (
+            f"enrollment_id=eq.{quote(str(chosen.get('id')))}"
+            "&select=units,status,schedule_label,subjects(code,name,lec_hours,lab_hours,units),"
+            "class_schedules(schedule_label,sessions_json,day_of_week,start_time,end_time,"
+            "sections(name),rooms(name))"
+        ),
+        use_secret=True,
+        timeout=12,
+    )
+    if err:
+        es_rows = []
+
+    schedule = []
+    for es in es_rows or []:
+        if str(es.get("status") or "enrolled") not in ("enrolled", "completed", "approved", ""):
+            continue
+        sub = es.get("subjects") or {}
+        cs = _unwrap_nested_row(es.get("class_schedules"))
+        sec = _unwrap_nested_row(cs.get("sections"))
+        schedule.append({
+            "code": sub.get("code") or "",
+            "description": sub.get("name") or "",
+            "lec": sub.get("lec_hours"),
+            "lab": sub.get("lab_hours"),
+            "unit": es.get("units") if es.get("units") is not None else sub.get("units"),
+            "section": sec.get("name") or "",
+            "schedule": _format_enrolled_schedule_label(es, cs),
+        })
+
+    if not schedule:
+        return {
+            "enrollmentStatus": status,
+            "message": "Your enrollment is on record, but no class schedule is linked yet. Please contact the registrar.",
+            "schedule": [],
+        }
+    return {"enrollmentStatus": status, "message": None, "schedule": schedule}
 
 
 def adjust_enrollment_access_for_invalid_record(student_id: str, access: dict) -> dict:
@@ -4038,10 +4359,16 @@ def _fetch_stage_enrollment_rest(student_uuid: str, grade_level: str, semester_c
                 grade_row = {}
             final_grade = grade_row.get("final_grade")
             grade_status = grade_row.get("grade_status")
-            if final_grade is not None and grade_status not in (None, "incomplete"):
+            if final_grade is not None:
                 graded += 1
-            if grade_status == "failed":
-                failed += 1
+            try:
+                if final_grade is not None and float(final_grade) < 75:
+                    failed += 1
+                elif grade_status == "failed":
+                    failed += 1
+            except (TypeError, ValueError):
+                if grade_status == "failed":
+                    failed += 1
         pay_rows, pay_err = supabase_rest_get(
             "enrollment_payments",
             f"enrollment_id=eq.{quote(str(enrollment_id))}&select=status",
@@ -4082,6 +4409,15 @@ def _is_stage_complete_rest(student_uuid: str, grade_level: str, semester_code: 
     graded = int(row.get("graded_subjects") or 0)
     failed = int(row.get("failed_subjects") or 0)
     return total > 0 and graded >= total and failed == 0
+
+
+def _stage_all_grades_posted_rest(student_uuid: str, grade_level: str, semester_code: str) -> bool:
+    row = _fetch_stage_enrollment_rest(student_uuid, grade_level, semester_code)
+    if not row:
+        return False
+    total = int(row.get("total_subjects") or 0)
+    graded = int(row.get("graded_subjects") or 0)
+    return total > 0 and graded >= total
 
 
 def _student_has_g11_history_rest(student_uuid: str) -> bool:
@@ -4141,50 +4477,52 @@ def get_lifecycle_state_rest(student_id: str) -> dict:
     blocked_reason = None
 
     for idx, (stage_key, stage_grade, stage_sem, stage_label) in enumerate(applicable_stages):
+        row = _fetch_stage_enrollment_rest(student_uuid, stage_grade, stage_sem)
+        grades_done = _stage_all_grades_posted_rest(student_uuid, stage_grade, stage_sem)
         if _is_stage_complete_rest(student_uuid, stage_grade, stage_sem):
             completed.append(stage_key)
             continue
 
-        row = _fetch_stage_enrollment_rest(student_uuid, stage_grade, stage_sem)
+        if row is not None:
+            failed = int(row.get("failed_subjects") or 0)
+            if idx + 1 < len(applicable_stages):
+                nxt = applicable_stages[idx + 1]
+                next_stage = nxt[0]
+                next_label = nxt[3]
+                if not grades_done:
+                    blocked_reason = (
+                        f"All {stage_label} subject grades must be posted before you can enroll in {nxt[3]}. "
+                        "Even one subject without a grade keeps the next enrollment closed."
+                    )
+                elif failed > 0:
+                    blocked_reason = (
+                        f"You have failing grades in {stage_label}. "
+                        "Please contact the registrar before enrolling in the next term."
+                    )
+                break
+            next_stage = stage_key
+            next_label = stage_label
+            status = row.get("enrollment_status")
+            if status in ("pending", "approved"):
+                blocked_reason = (
+                    f"Your {stage_label} enrollment is pending approval. Please wait for the administrator."
+                )
+            break
+
         next_stage = stage_key
         next_label = stage_label
-
-        if row is None:
-            if stage_key.startswith("g12_") and progression == "retained_g11" and not direct_g12:
+        if stage_key.startswith("g12_") and progression == "retained_g11" and not direct_g12:
+            blocked_reason = (
+                "You have unresolved failing grades in Grade 11. "
+                "Grade 12 enrollment is not available. Please contact the registrar."
+            )
+            next_stage = None
+        elif idx > 0:
+            prev = applicable_stages[idx - 1]
+            if not _stage_all_grades_posted_rest(student_uuid, prev[1], prev[2]):
                 blocked_reason = (
-                    "You have unresolved failing grades in Grade 11. "
-                    "Grade 12 enrollment is not available. Please contact the registrar."
+                    f"All {prev[3]} subject grades must be posted before you can enroll in {stage_label}."
                 )
-                next_stage = None
-            elif idx > 0:
-                prev = applicable_stages[idx - 1]
-                if not _is_stage_complete_rest(student_uuid, prev[1], prev[2]):
-                    blocked_reason = (
-                        f"Complete {prev[3]} (enrollment, payment approval, and grades) "
-                        f"before enrolling in {stage_label}."
-                    )
-            break
-
-        status = row.get("enrollment_status")
-        if status in ("pending", "approved"):
-            blocked_reason = f"Your {stage_label} enrollment is pending approval. Please wait for the administrator."
-            break
-        if status == "enrolled" and row.get("payment_status") != "approved":
-            blocked_reason = (
-                f"Complete payment approval for {stage_label} before proceeding. Go to Payment / Accounts."
-            )
-            break
-        if status == "enrolled" and int(row.get("graded_subjects") or 0) < int(row.get("total_subjects") or 0):
-            blocked_reason = (
-                f"Your {stage_label} grades are not complete yet. "
-                "Enrollment for the next term unlocks after grades are posted."
-            )
-            break
-        if status == "enrolled" and int(row.get("failed_subjects") or 0) > 0:
-            blocked_reason = (
-                f"You have failing grades in {stage_label}. Please contact the registrar before enrolling in the next term."
-            )
-            break
         break
 
     if next_stage is None and len(completed) >= required_count:
@@ -4262,6 +4600,14 @@ def fetch_enrollment_access_rest(student_id: str) -> dict:
         timeout=10,
     )
     current_status = current_rows[0].get("status") if current_rows else None
+    if current_status is None:
+        for row in _list_student_enrollments(student_uuid):
+            sem = row.get("semesters") or {}
+            if str(sem.get("code") or "") != semester_code:
+                continue
+            if str(row.get("status") or "") in ("pending", "approved", "enrolled"):
+                current_status = row.get("status")
+                break
     next_semester = "2nd Semester" if semester_code == "1st" else "the next school year (1st Semester)"
     next_stage = lifecycle.get("nextStage")
 
@@ -4955,18 +5301,8 @@ def handle_student_grades(handler):
         json_response(handler, 400, {"success": False, "error": "studentId required"})
         return
     if supabase_configured():
-        result, error = supabase_rpc("get_student_grades", {"p_student_id": student_id}, timeout=15)
-        if error:
-            json_response(handler, 500, {"success": False, "error": friendly_user_error(parse_supabase_error(error))})
-            return
-        data = result if isinstance(result, dict) else {
-            "enrollmentStatus": "unknown",
-            "terms": result if isinstance(result, list) else [],
-        }
-        json_response(handler, 200, {
-            "success": True,
-            "data": adjust_student_grades_payload(student_id, data),
-        })
+        data = build_student_grades_payload(student_id)
+        json_response(handler, 200, {"success": True, "data": data})
         return
     json_response(handler, 200, {
         "success": True,
@@ -4990,11 +5326,8 @@ def handle_student_payment(handler):
     if not supabase_configured():
         json_response(handler, 503, {"success": False, "error": "Supabase not configured"})
         return
-    result, error = supabase_rpc("get_student_payment_status", {"p_student_id": student_id}, timeout=15)
-    if error:
-        json_response(handler, 500, {"success": False, "error": friendly_user_error(parse_supabase_error(error))})
-        return
-    json_response(handler, 200, {"success": True, "data": result if isinstance(result, dict) else {}})
+    data = build_student_payment_payload(student_id)
+    json_response(handler, 200, {"success": True, "data": data})
 
 
 def handle_student_notifications(handler):
@@ -5026,14 +5359,8 @@ def handle_student_schedule(handler):
         json_response(handler, 400, {"success": False, "error": "studentId required"})
         return
     if supabase_configured():
-        result, error = supabase_rpc("get_student_strand_schedule", {"p_student_id": student_id}, timeout=15)
-        if error:
-            json_response(handler, 500, {"success": False, "error": friendly_user_error(parse_supabase_error(error))})
-            return
-        json_response(handler, 200, {
-            "success": True,
-            "data": result if isinstance(result, dict) else {"enrollmentStatus": "unknown", "schedule": result if isinstance(result, list) else []},
-        })
+        data = build_student_schedule_payload(student_id)
+        json_response(handler, 200, {"success": True, "data": data})
         return
     json_response(handler, 200, {
         "success": True,

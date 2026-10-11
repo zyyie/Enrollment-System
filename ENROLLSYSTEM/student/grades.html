@@ -34,7 +34,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/js/config.js"></script>
   <script src="/js/supabase-client.js"></script>
-  <script src="/js/supabase-service.js?v=6"></script>
+  <script src="/js/supabase-service.js?v=7"></script>
   <script src="../js/icons.js?v=3"></script>
   <script src="../js/app.js?v=25"></script>
   <script>
@@ -128,25 +128,13 @@
       const terms = result.terms || [];
       const status = result.enrollmentStatus || 'none';
 
-      if (status === 'none') {
-        container.innerHTML = '';
-        showNotice(result.message || 'No grades available yet.', 'info');
-        return;
-      }
-
-      if (status === 'past_only') {
-        notice.style.display = 'none';
-        renderGrades(terms);
-        return;
-      }
-
-      if (status === 'pending') {
+      if (status === 'pending' && !terms.length) {
         container.innerHTML = '';
         showNotice(result.message || 'Your enrollment is pending admin approval.', 'pending');
         return;
       }
 
-      if (status === 'rejected') {
+      if (status === 'rejected' && !terms.length) {
         container.innerHTML = '';
         showNotice(result.message || 'Your enrollment was not approved.', 'rejected');
         return;
@@ -154,7 +142,7 @@
 
       if (!terms.length) {
         container.innerHTML = '';
-        showNotice('You are enrolled, but no subjects are on record yet. Please contact the registrar if this looks wrong.', 'info');
+        showNotice(result.message || 'No grades available yet.', 'info');
         return;
       }
 
@@ -163,7 +151,7 @@
       );
 
       if (!hasAnyGrade) {
-        showNotice('Your enrolled subjects are listed below. Grades use the percentage scale (75 and above is passing).', 'success');
+        showNotice('1st and 2nd semester subjects for your grade level are listed below. Posted grades appear after faculty encode them (75 and above is passing).', 'success');
       }
 
       renderGrades(terms);
